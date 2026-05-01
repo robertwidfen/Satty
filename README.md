@@ -79,6 +79,7 @@ Default single-key shortcuts:
 - Pointer: <sup>NEXTRELEASE</sup>
   - <kbd>Click</kbd> on annotation to select and raise it to top
   - <kbd>Delete</kbd> to delete selected annotation
+  - <kbd>Double-Click</kbd> to edit selected text annotation
 - Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps
 - Ellipse: Hold <kbd>Alt</kbd> to center the ellipse around origin, hold <kbd>Shift</kbd> for a circle
 - Highlight: Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
