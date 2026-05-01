@@ -113,16 +113,6 @@ impl Drawable for Marker {
             femtovg::Solidity::Solid,
         );
 
-        let mut outer_circle_path = Path::new();
-        outer_circle_path.arc(
-            self.pos.x,
-            self.pos.y,
-            circle_radius,
-            0.0,
-            2.0 * PI as f32,
-            femtovg::Solidity::Solid,
-        );
-
         let circle_paint = Paint::color(marker_color).with_line_width(
             self.style
                 .size
@@ -130,12 +120,10 @@ impl Drawable for Marker {
                 * 2.0,
         );
 
-        self.radius
-            .set(circle_radius + self.style.annotation_size_factor);
+        self.radius.set(circle_radius * 0.8);
 
         canvas.save();
         canvas.fill_path(&inner_circle_path, &circle_paint);
-        canvas.stroke_path(&outer_circle_path, &circle_paint);
         canvas.fill_text(self.pos.x, self.pos.y, &text, &paint)?;
         canvas.restore();
         Ok(())
