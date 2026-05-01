@@ -58,6 +58,7 @@ pub struct FemtoVgAreaMut {
     drag_offset: Vec2D,
     is_drag: bool,
     is_reset: bool,
+    hidden_drawable_index: Option<usize>,
 }
 
 #[glib::object_subclass]
@@ -180,6 +181,7 @@ impl FemtoVGArea {
             last_scale: initial_scale,
             is_drag: false,
             is_reset: false,
+            hidden_drawable_index: None,
         });
         self.sender.borrow_mut().replace(sender);
     }
@@ -306,6 +308,63 @@ impl FemtoVgAreaMut {
     pub fn commit(&mut self, drawable: Box<dyn Drawable>) {
         self.drawables.push(drawable);
         self.redo_stack.clear();
+    }
+
+    /// Hit-test all drawables and return all indices whose bounds contain `pos`, in order from topmost to bottommost.
+    /// A small tolerance is applied to make thin shapes (lines, arrows) easier to click.
+    pub fn hit_test(&self, pos: Vec2D) -> Vec<usize> {
+        let mut results = Vec::new();
+        const HIT_TOLERANCE: f32 = 5.0;
+        for (i, d) in self.drawables.iter().enumerate().rev() {
+            if d.hit_test(pos, HIT_TOLERANCE) {
+                results.push(i);
+            }
+        }
+        results
+    }
+
+    /// Returns the bounds of the drawable at `index`, if it supports bounds.
+    pub fn get_drawable_bounds(&self, index: usize) -> Option<(Vec2D, Vec2D)> {
+        self.drawables.get(index).and_then(|d| d.bounds())
+    }
+
+    /// Returns a clone of the drawable at `index`.
+    pub fn get_drawable_clone(&self, index: usize) -> Option<Box<dyn Drawable>> {
+        self.drawables.get(index).map(|d| d.clone_box())
+    }
+
+    /// Replace the drawable at `index` with `drawable`.
+    pub fn replace_drawable(&mut self, index: usize, drawable: Box<dyn Drawable>) {
+        if index < self.drawables.len() {
+            self.drawables[index] = drawable;
+        }
+    }
+
+    /// Move the drawable at `index` to the end of the stack and return its new index.
+    pub fn move_drawable_to_end(&mut self, index: usize) -> Option<usize> {
+        if index >= self.drawables.len() {
+            return None;
+        }
+
+        if index + 1 == self.drawables.len() {
+            return Some(index);
+        }
+
+        let drawable = self.drawables.remove(index);
+        self.drawables.push(drawable);
+        Some(self.drawables.len() - 1)
+    }
+
+    /// Remove the drawable at `index`.
+    pub fn remove_drawable(&mut self, index: usize) {
+        if index < self.drawables.len() {
+            self.drawables.remove(index);
+        }
+    }
+
+    /// Set (or clear) the drawable index to skip during rendering (used while drag-previewing).
+    pub fn set_hidden_drawable_index(&mut self, index: Option<usize>) {
+        self.hidden_drawable_index = index;
     }
 
     pub fn undo(&mut self) -> bool {
@@ -457,13 +516,23 @@ impl FemtoVgAreaMut {
                 self.background_image.height() as f32,
             ),
         );
+        let mut active_tool_drawn_in_stack = false;
+
         // render the whole stack
-        for d in &mut self.drawables {
+        for (i, d) in self.drawables.iter().enumerate() {
+            if self.hidden_drawable_index == Some(i) {
+                // Draw the active tool preview in the original z position.
+                if let Some(preview) = self.active_tool.borrow().get_drawable() {
+                    preview.draw(canvas, font, bounds)?;
+                    active_tool_drawn_in_stack = true;
+                }
+                continue;
+            }
             d.draw(canvas, font, bounds)?;
         }
 
-        // render active tool
-        if let Some(d) = self.active_tool.borrow().get_drawable() {
+        // render active tool (default: on top) when not already drawn in stack order
+        if !active_tool_drawn_in_stack && let Some(d) = self.active_tool.borrow().get_drawable() {
             d.draw(canvas, font, bounds)?;
         }
 
