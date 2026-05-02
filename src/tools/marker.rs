@@ -57,6 +57,22 @@ impl Drawable for Marker {
         self.pos += delta;
     }
 
+    fn set_color(&mut self, color: crate::style::Color) {
+        self.style.color = color;
+    }
+
+    fn get_color(&self) -> Option<crate::style::Color> {
+        Some(self.style.color)
+    }
+
+    fn get_size(&self) -> Option<crate::style::Size> {
+        Some(self.style.size)
+    }
+
+    fn set_size(&mut self, size: crate::style::Size) {
+        self.style.size = size;
+    }
+
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
         let Some((old_tl, old_br)) = self.bounds() else {
             return;

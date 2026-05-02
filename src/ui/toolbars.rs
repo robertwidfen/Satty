@@ -32,6 +32,8 @@ pub struct StyleToolbar {
     custom_color: Color,
     custom_color_pixbuf: Pixbuf,
     color_action: SimpleAction,
+    size_action: SimpleAction,
+    fill_enabled: bool,
     visible: bool,
     output_dimensions: String,
 }
@@ -42,6 +44,7 @@ pub enum ToolbarEvent {
     ToolSelected(Tools),
     ColorSelected(Color),
     SizeSelected(Size),
+    SetFill(bool),
     Redo,
     Undo,
     SaveFile,
@@ -65,6 +68,9 @@ pub enum ToolsToolbarInput {
 #[derive(Debug, Copy, Clone)]
 pub enum StyleToolbarInput {
     ColorButtonSelected(ColorButtons),
+    SetColor(Color),
+    SetFill(bool),
+    SetSize(Size),
     ShowColorDialog,
     ColorDialogFinished(Option<Color>),
     SetVisibility(bool),
@@ -574,24 +580,20 @@ impl Component for StyleToolbar {
                 set_tooltip: "Output dimensions (width x height)",
             },
             gtk::Separator {},
+            #[name(fill_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
 
-                set_icon_name: if APP_CONFIG.read().default_fill_shapes() {
+                #[watch]
+                set_icon_name: if model.fill_enabled {
                     "paint-bucket-filled"
                 } else {
                     "paint-bucket-regular"
                 },
                 set_tooltip: "Fill shape",
-                connect_clicked[sender] => move |button| {
+                connect_clicked[sender] => move |_| {
                     sender.output_sender().emit(ToolbarEvent::ToggleFill);
-                    let new_icon = if button.icon_name() == Some("paint-bucket-regular".into()) {
-                        "paint-bucket-filled"
-                    } else {
-                        "paint-bucket-regular"
-                    };
-                    button.set_icon_name(new_icon);
                 },
             },
         },
@@ -623,6 +625,30 @@ impl Component for StyleToolbar {
                 sender
                     .output_sender()
                     .emit(ToolbarEvent::ColorSelected(color));
+            }
+            StyleToolbarInput::SetColor(color) => {
+                let palette_match = APP_CONFIG
+                    .read()
+                    .color_palette()
+                    .palette()
+                    .iter()
+                    .position(|&p| p == color)
+                    .map(|index| ColorButtons::Palette(index as u64))
+                    .unwrap_or(ColorButtons::Custom);
+
+                // Only update custom_color if this is not a palette color
+                if matches!(palette_match, ColorButtons::Custom) {
+                    self.custom_color = color;
+                    self.custom_color_pixbuf = create_icon_pixbuf(color);
+                }
+
+                self.color_action.change_state(&palette_match.to_variant());
+            }
+            StyleToolbarInput::SetFill(fill_enabled) => {
+                self.fill_enabled = fill_enabled;
+            }
+            StyleToolbarInput::SetSize(size) => {
+                self.size_action.change_state(&size.to_variant());
             }
 
             StyleToolbarInput::SetVisibility(visible) => self.visible = visible,
@@ -692,6 +718,8 @@ impl Component for StyleToolbar {
             custom_color,
             custom_color_pixbuf,
             color_action: SimpleAction::from(color_action.clone()),
+            size_action: SimpleAction::from(size_action.clone()),
+            fill_enabled: APP_CONFIG.read().default_fill_shapes(),
             visible: !APP_CONFIG.read().default_hide_toolbars(),
             output_dimensions: String::new(),
         };

@@ -176,6 +176,30 @@ pub trait Drawable: DrawableClone + Debug {
     fn edit_info(&self) -> Option<(Vec2D, String, crate::style::Style)> {
         None
     }
+
+    /// Updates only the drawable color when supported. No-op for unsupported drawables.
+    fn set_color(&mut self, _color: crate::style::Color) {}
+
+    /// Returns the drawable color when supported.
+    fn get_color(&self) -> Option<crate::style::Color> {
+        None
+    }
+
+    /// Returns whether the drawable is filled when supported. Returns false for unsupported drawables.
+    fn get_fill(&self) -> bool {
+        false
+    }
+
+    /// Updates only the drawable fill flag when supported. No-op for unsupported drawables.
+    fn set_fill(&mut self, _fill: bool) {}
+
+    /// Returns the drawable size when supported.
+    fn get_size(&self) -> Option<crate::style::Size> {
+        None
+    }
+
+    /// Updates only the drawable size when supported. No-op for unsupported drawables.
+    fn set_size(&mut self, _size: crate::style::Size) {}
 }
 
 pub fn hit_test_rectangle(
