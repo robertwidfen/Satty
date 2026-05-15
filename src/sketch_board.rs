@@ -50,6 +50,7 @@ pub enum SketchBoardOutput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    FillToggled(bool),
     DimensionsUpdate(Option<(i32, i32)>),
 }
 
@@ -833,6 +834,9 @@ impl SketchBoard {
             ToolbarEvent::Reset => self.handle_reset(),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::FillToggled(self.style.fill));
                 self.active_tool
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style))
@@ -902,6 +906,12 @@ impl SketchBoard {
                             .output_sender()
                             .emit(SketchBoardOutput::ColorSwitchShortcut(index_digit as u64));
                     }
+                } else if txt
+                    .chars()
+                    .next()
+                    .is_some_and(|char| char.eq_ignore_ascii_case(&'f'))
+                {
+                    sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::ToggleFill));
                 }
             }
             TextEventMsg::Preedit {
