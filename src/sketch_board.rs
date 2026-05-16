@@ -256,6 +256,7 @@ pub struct SketchBoard {
     pointer_tool: Rc<RefCell<PointerTool>>,
     text_tool: Rc<RefCell<TextTool>>,
     return_to_pointer_after_text_commit: bool,
+    temporary_pointer_previous_tool: Option<Tools>,
     style: Style,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
@@ -813,12 +814,6 @@ impl SketchBoard {
         me: &crate::sketch_board::MouseEventMsg,
         sender: &ComponentSender<Self>,
     ) -> Option<ToolUpdateResult> {
-        use crate::sketch_board::MouseButton;
-        use crate::sketch_board::MouseEventType;
-        if me.type_ != MouseEventType::BeginDrag || me.button == MouseButton::Middle {
-            return None;
-        }
-
         // Check resize handle first (only when something is already selected)
         let handle_hit = self.pointer_tool.borrow().hit_test_handle(me.pos);
         if let Some(handle) = handle_hit {
@@ -942,6 +937,7 @@ impl SketchBoard {
     ) -> ToolUpdateResult {
         match toolbar_event {
             ToolbarEvent::ToolSelected(tool) => {
+                self.temporary_pointer_previous_tool = None;
                 if tool != Tools::Text {
                     self.return_to_pointer_after_text_commit = false;
                 }
@@ -1315,6 +1311,13 @@ impl Component for SketchBoard {
         let sender_clone = sender.clone();
         let result = match msg {
             SketchBoardInput::InputEvent(mut ie) => {
+                if matches!(ie, InputEvent::Mouse(_)) {
+                    // changes pos to local coords
+                    ie.handle_event_mouse_input(&self.renderer);
+                    // handle right click and other things
+                    ie.handle_mouse_event(&self.renderer);
+                }
+
                 if let InputEvent::Key(ke) = ie {
                     let active_tool_result = self
                         .active_tool
@@ -1445,58 +1448,79 @@ impl Component for SketchBoard {
                             }
                         }
                     }
-                } else {
-                    ie.handle_event_mouse_input(&self.renderer);
-
-                    // For the pointer tool, intercept double-click (re-edit text) and
-                    // BeginDrag (hit-test for move/resize) before dispatching to the tool.
-                    let pointer_begin_drag_result = if self.active_tool_type() == Tools::Pointer {
-                        if let InputEvent::Mouse(ref me) = ie {
-                            if me.type_ == MouseEventType::Click && me.n_pressed == 2 {
-                                self.handle_pointer_tool_double_click(me.pos, &sender)
-                            } else {
-                                self.handle_pointer_tool_begin_drag(me, &sender)
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-
-                    let active_tool_result = if let Some(r) = pointer_begin_drag_result {
-                        r
-                    } else {
-                        let result = self
-                            .active_tool
-                            .borrow_mut()
-                            .handle_event(ToolEvent::Input(ie.clone()));
-
-                        // After EndDrag for the pointer tool, always restore the hidden drawable.
-                        if self.active_tool_type() == Tools::Pointer
-                            && let InputEvent::Mouse(ref me) = ie
-                            && me.type_ == MouseEventType::EndDrag
-                            && me.button != MouseButton::Middle
+                } else if let InputEvent::Mouse(me) = ie {
+                    if self.active_tool_type() == Tools::Pointer {
+                        if me.type_ == MouseEventType::Click && me.n_pressed == 2 {
+                            self.handle_pointer_tool_double_click(me.pos, &sender)
+                                .unwrap_or_else(|| ToolUpdateResult::Unmodified)
+                        } else if me.type_ == MouseEventType::Click
+                            && me.n_pressed == 1
+                            && let Some(previous_tool) = self.temporary_pointer_previous_tool
+                            && previous_tool != Tools::Pointer
+                            && self.renderer.hit_test(me.pos).is_empty()
                         {
-                            self.renderer.set_hidden_drawable_index(None);
-                        }
-
-                        result
-                    };
-
-                    // eprintln!("active_tool_result={:?}", active_tool_result);
-
-                    match active_tool_result {
-                        ToolUpdateResult::StopPropagation
-                        | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
-                        _ => {
-                            if let Some(result) = ie.handle_mouse_event(&self.renderer) {
-                                result
+                            self.temporary_pointer_previous_tool = None;
+                            self.handle_toolbar_event(
+                                ToolbarEvent::ToolSelected(previous_tool),
+                                sender.clone(),
+                            );
+                            sender
+                                .output_sender()
+                                .emit(SketchBoardOutput::ToolSwitchShortcut(previous_tool));
+                            self.active_tool
+                                .borrow_mut()
+                                .handle_event(ToolEvent::Input(ie.clone()))
+                        } else {
+                            let result = if me.type_ == MouseEventType::BeginDrag {
+                                self.handle_pointer_tool_begin_drag(&me, &sender)
+                                    .unwrap_or(ToolUpdateResult::Unmodified)
+                            } else if !matches!(
+                                me.type_,
+                                MouseEventType::PointerPos | MouseEventType::UpdateDrag
+                            ) {
+                                self.renderer.set_hidden_drawable_index(None);
+                                ToolUpdateResult::Redraw
                             } else {
-                                active_tool_result
+                                ToolUpdateResult::Unmodified
+                            };
+                            let tool_result = self
+                                .active_tool
+                                .borrow_mut()
+                                .handle_event(ToolEvent::Input(ie.clone()));
+                            match tool_result {
+                                ToolUpdateResult::Unmodified => result,
+                                _ => tool_result,
                             }
                         }
+                    } else if me.type_ == MouseEventType::Click && me.n_pressed == 1 {
+                        if !me.modifier.contains(ModifierType::CONTROL_MASK)
+                            && !self.renderer.hit_test(me.pos).is_empty()
+                        {
+                            let previous_tool = self.active_tool_type();
+                            self.handle_toolbar_event(
+                                ToolbarEvent::ToolSelected(Tools::Pointer),
+                                sender.clone(),
+                            );
+                            sender
+                                .output_sender()
+                                .emit(SketchBoardOutput::ToolSwitchShortcut(Tools::Pointer));
+                            self.temporary_pointer_previous_tool = Some(previous_tool);
+                            ToolUpdateResult::Redraw
+                        } else {
+                            self.active_tool
+                                .borrow_mut()
+                                .handle_event(ToolEvent::Input(ie.clone()))
+                        }
+                    } else {
+                        self.active_tool
+                            .borrow_mut()
+                            .handle_event(ToolEvent::Input(ie.clone()))
                     }
+                } else {
+                    // other things like input for text tool
+                    self.active_tool
+                        .borrow_mut()
+                        .handle_event(ToolEvent::Input(ie.clone()))
                 }
             }
             SketchBoardInput::NudgeSelection(delta) => {
@@ -1617,6 +1641,7 @@ impl Component for SketchBoard {
             pointer_tool,
             text_tool,
             return_to_pointer_after_text_commit: false,
+            temporary_pointer_previous_tool: None,
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),

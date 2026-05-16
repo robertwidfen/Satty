@@ -1,4 +1,4 @@
-# <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation.
+# <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation
 
 Satty is a screenshot annotation tool inspired by [Swappy](https://github.com/jtheoof/swappy) and [Flameshot](https://flameshot.org/).
 
@@ -20,6 +20,7 @@ Thanks to our package maintainers, Satty is available for many distributions on 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/satty.svg)](https://repology.org/project/satty/versions)
 
 ### Specifics
+
 | Distribution | Command | Note |
 | --- | --- | --- |
 | Gentoo | `emerge -av satty` | You need guru overlay (see [wiki](https://github.com/gabm/Satty/wiki/Gentoo-Guru)). Pending [PR](https://github.com/gentoo/gentoo/pull/33908) |
@@ -62,6 +63,7 @@ If out of range select custom color <sup>0.21.0</sup>
 
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 Default single-key shortcuts:
+
 - <kbd>p</kbd>: Pointer tool
 - <kbd>c</kbd>: Crop tool
 - <kbd>b</kbd>: Brush tool
@@ -81,6 +83,7 @@ Default single-key shortcuts:
   - <kbd>Alt+Click</kbd> on overlapping annotations cycles selection through them without raising them
   - <kbd>Delete</kbd> to delete selected annotation
   - <kbd>Double-Click</kbd> to edit selected text annotation
+  - <kbd>Click</kbd> without  With <kbd>Control</kbd> on an annotation temporarily switches from active tool to pointer tool - click in empty space switches back to original tool. 
 - Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps
 - Ellipse: Hold <kbd>Alt</kbd> to center the ellipse around origin, hold <kbd>Shift</kbd> for a circle
 - Highlight: Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
@@ -379,6 +382,7 @@ grim -g "0,0 3840x2160" -t ppm - | satty --filename - --output-filename - | conv
 
 Add this to your ~/.config/sway/config.
 It needs `grim` and `slurp`.
+
 ```sh
 # screenshots
 # inspiration: https://www.reddit.com/r/swaywm/comments/ghnlea/comment/fqnzxkx/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
@@ -426,6 +430,7 @@ flatpak install satty-<version>.flatpak
 
 Satty is based on GTK-4 and Adwaita.
 Dependencies, depending of each distributions are:
+
 - glib2
 - gtk4 (libgtk-4-x)
 - gdk-pixbuf2
