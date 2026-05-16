@@ -1,4 +1,4 @@
-# <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation.
+# <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation
 
 Satty is a screenshot annotation tool inspired by [Swappy](https://github.com/jtheoof/swappy) and [Flameshot](https://flameshot.org/).
 
@@ -20,6 +20,7 @@ Thanks to our package maintainers, Satty is available for many distributions on 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/satty.svg)](https://repology.org/project/satty/versions)
 
 ### Specifics
+
 | Distribution | Command | Note |
 | --- | --- | --- |
 | Gentoo | `emerge -av satty` | You need guru overlay (see [wiki](https://github.com/gabm/Satty/wiki/Gentoo-Guru)). Pending [PR](https://github.com/gentoo/gentoo/pull/33908) |
@@ -55,6 +56,7 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 - <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>0.20.1</sup>
 
 #### Size Selection Shortcut
+
 <kbd>-</kbd>: Cycle between large, medium and small size <sup>NEXTRELEASE</sup>
 
 #### Color Selection Shortcuts <sup>0.20.1</sup>
@@ -70,6 +72,7 @@ If out of range select custom color <sup>NEXTRELEASE</sup>
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 
 Default single-key shortcuts:
+
 - <kbd>p</kbd>: Pointer tool
 - <kbd>c</kbd>: Crop tool
 - <kbd>b</kbd>: Brush tool
@@ -89,6 +92,7 @@ Default single-key shortcuts:
   - <kbd>Alt+Click</kbd> on overlapping annotations cycles selection through them without raising them
   - <kbd>Delete</kbd> to delete selected annotation
   - <kbd>Double-Click</kbd> to edit selected text annotation
+  - <kbd>Click</kbd> on an annotation temporarily switches from active tool to pointer tool - click in empty space switches back to original tool
 - Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps
 - Ellipse: Hold <kbd>Alt</kbd> to center the ellipse around origin, hold <kbd>Shift</kbd> for a circle
 - Highlight: Hold <kbd>Alt</kbd> to center the block highlight around origin <sup>NEXTRELEASE</sup>, hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
@@ -108,9 +112,9 @@ Default single-key shortcuts:
   - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
   - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
 - Crop:
-   - Press <kbd>Esc</kbd> or right mouse button while editing to reset crop altogether <sup>NEXTRELEASE</sup>
-   - Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>NEXTRELEASE</sup>
-   - Left click crop area when tool is active but not editing to resume editing<sup>NEXTRELEASE</sup>
+  - Press <kbd>Esc</kbd> or right mouse button while editing to reset crop altogether <sup>NEXTRELEASE</sup>
+  - Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>NEXTRELEASE</sup>
+  - Left click crop area when tool is active but not editing to resume editing<sup>NEXTRELEASE</sup>
 
 ### Configuration File
 
@@ -387,6 +391,7 @@ grim -g "0,0 3840x2160" -t ppm - | satty --filename - --output-filename - | conv
 
 Add this to your ~/.config/sway/config.
 It needs `grim` and `slurp`.
+
 ```sh
 # screenshots
 # inspiration: https://www.reddit.com/r/swaywm/comments/ghnlea/comment/fqnzxkx/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
@@ -434,6 +439,7 @@ flatpak install satty-<version>.flatpak
 
 Satty is based on GTK-4 and Adwaita.
 Dependencies, depending of each distributions are:
+
 - glib2
 - gtk4 (libgtk-4-x)
 - gdk-pixbuf2
