@@ -41,6 +41,7 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 
 ### Shortcuts
 
+#### General
 - <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard (may be masked by active tool)
 - <kbd>Esc</kbd>: as configured (see below), default: exit (may be masked by active tool)
 - <kbd>Delete</kbd> reset (clear) <sup>experimental</sup> <sup>0.20.1</sup>
@@ -179,20 +180,12 @@ title = "Satty"
 # experimental feature (NEXTRELEASE): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
 app-id = "org.satty.satty"
 
-
-# Tool selection keyboard shortcuts (since 0.20.0)
+# Tool selection keyboard shortcuts (since 0.20.0) 
+# Generic keyboard shortcuts - more details below (NEXTMAJORRELEASE)
 [keybinds]
-pointer = "p"
-crop = "c"
-brush = "b"
-line = "i"
-arrow = "z"
-rectangle = "r"
-ellipse = "e"
-text = "t"
-marker = "m"
-blur = "u"
-highlight = "g"
+"<Control>q" = "run-actions-on-escape" # additionally to Escape
+"i" = "none" # unbind "i" default for line
+"l" = "line"
 
 # Font to use for text annotations
 [font]
@@ -235,6 +228,64 @@ custom = [
     "#ffd700",
     "#008000",
 ]
+```
+
+#### Keybindings
+
+Shortcuts can be overwritten in the config by 
+```toml
+[keybinds]
+"BINDING" = "TOOL-OR-COMMAND"
+```
+
+Where `BINDING` is in GTK syntax, i.e. modifiers in brackets "`<mod>`" and key by name, e.g. `"-"` must be written as `"minus"`.
+
+Setting a binding to `"none"` will unbind a key.
+
+The dafaults are:
+```toml
+[keybinds]
+"p" = "pointer"
+"c" = "crop"
+"b" = "brush"
+"i" = "line"
+"z" = "arrow"
+"r" = "rectangle"
+"e" = "ellipse"
+"t" = "text"
+"m" = "marker"
+"u" = "blur"
+"x" = "pixelate"
+"g" = "highlight"
+
+"<Control><Shift>d" = "open-gtk-inspector"
+"<Alt>Left" = "pan-left"
+"<Alt>Right" = "pan-right"
+"<Alt>Up" = "pan-up"
+"<Alt>Down" = "pan-down"
+"Delete" = "delete-selection"
+"Escape" = "run-actions-on-escape"
+"Return" = "run-actions-on-enter"
+"<Control>t" = "toggle-toolbars"
+
+# top toolbar
+"<Control>1" = "original-scale"
+"<Control>2" = "fit-to-window"
+"<Shift>Delete" = "reset-all"
+"<Control>z" = "undo"
+"<Control>y" = "redo"
+"<Control>s" = "save-to-file"
+"<Control><Shift>s" = "save-to-file-as"
+"<Control>c" = "save-to-clipboard"
+"<Control><Shift>c" = "copy-filepath-to-clipboard"
+
+# bottom toolbar
+"1" = "select-color-index-1"
+…
+"9" = "select-color-index-9"
+"minus" = "cycle-size"
+#"..." = "select-size-(small|medium|large)"
+"f" = "toggle-fill"
 ```
 
 ### Command Line
@@ -319,7 +370,7 @@ Options:
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
-          Action to perform when pressing Enter. Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+          Action to perform when pressing Enter. Preferably use the `actions-on-enter` option instead [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
   -h, --help
           Print help
   -V, --version

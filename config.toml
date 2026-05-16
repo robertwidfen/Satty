@@ -48,17 +48,53 @@ brush-smooth-history-size = 10
 
 # Tool selection keyboard shortcuts
 [keybinds]
-pointer = "p"
-crop = "c"
-brush = "b"
-line = "i"
-arrow = "z"
-rectangle = "r"
-ellipse = "e"
-text = "t"
-marker = "m"
-blur = "u"
-highlight = "g"
+# Global
+"<Control><Shift>d" = "open-gtk-inspector"
+"<Alt>Left" = "pan-left"
+"<Alt>Right" = "pan-right"
+"<Alt>Up" = "pan-up"
+"<Alt>Down" = "pan-down"
+"Delete" = "delete-selection"
+"Escape" = "run-actions-on-escape"
+"Return" = "run-actions-on-enter"
+"<Control>t" = "toggle-toolbars"
+
+# top toolbar
+"<Control>1" = "original-scale"
+"<Control>2" = "fit-to-window"
+"<Shift>Delete" = "reset-all"
+"<Control>z" = "undo"
+"<Control>y" = "redo"
+"p" = "pointer"
+"c" = "crop"
+"b" = "brush"
+"i" = "line"
+"z" = "arrow"
+"r" = "rectangle"
+"e" = "ellipse"
+"t" = "text"
+"m" = "marker"
+"u" = "blur"
+"x" = "pixelate"
+"g" = "highlight"
+"<Control>s" = "save-to-file"
+"<Control><Shift>s" = "save-to-file-as"
+"<Control>c" = "save-to-clipboard"
+"<Control><Shift>c" = "copy-filepath-to-clipboard"
+
+# bottom toolbar
+"1" = "select-color-index-1"
+"2" = "select-color-index-2"
+"3" = "select-color-index-3"
+"4" = "select-color-index-4"
+"5" = "select-color-index-5"
+"6" = "select-color-index-6"
+"7" = "select-color-index-7"
+"8" = "select-color-index-8"
+"9" = "select-color-index-9"
+"minus" = "cycle-size"
+#"..." = "select-size-(small|medium|large)"
+"f" = "toggle-fill"
 
 # Font to use for text annotations
 [font]
@@ -68,22 +104,8 @@ style = "Regular"
 # Custom colours for the colour palette
 [color-palette]
 # These will be shown in the toolbar for quick selection
-palette = [
-    "#00ffff",
-    "#a52a2a",
-    "#dc143c",
-    "#ff1493",
-    "#ffd700",
-    "#008000"
-]
+palette = ["#00ffff", "#a52a2a", "#dc143c", "#ff1493", "#ffd700", "#008000"]
 
 # These will be available in the color picker as presets
 # Leave empty to use GTK's default
-custom = [
-    "#00ffff",
-    "#a52a2a",
-    "#dc143c",
-    "#ff1493",
-    "#ffd700",
-    "#008000"
-]
+custom = ["#00ffff", "#a52a2a", "#dc143c", "#ff1493", "#ffd700", "#008000"]
