@@ -801,7 +801,6 @@ impl SketchBoard {
                     self.renderer.get_drawable_bounds(idx),
                 )
             {
-                self.style.fill = drawable.get_fill();
                 self.renderer.set_hidden_drawable_index(Some(idx));
                 self.pointer_tool
                     .borrow_mut()
@@ -810,20 +809,66 @@ impl SketchBoard {
             }
         }
 
+        let is_alt_click = me.modifier.contains(ModifierType::ALT_MASK);
+
+        // If a drawable is already selected and the click is inside its body,
+        // keep using it instead of re-selecting another overlapping drawable.
+        if !is_alt_click {
+            let selected_idx = self.pointer_tool.borrow().selected_index();
+            if let Some(sel_idx) = selected_idx
+                && let (Some(drawable), Some((tl, br))) = (
+                    self.renderer.get_drawable_clone(sel_idx),
+                    self.renderer.get_drawable_bounds(sel_idx),
+                )
+                && me.pos.x >= tl.x
+                && me.pos.x <= br.x
+                && me.pos.y >= tl.y
+                && me.pos.y <= br.y
+            {
+                self.renderer.set_hidden_drawable_index(Some(sel_idx));
+                self.pointer_tool
+                    .borrow_mut()
+                    .begin_move(sel_idx, drawable, (tl, br));
+                return Some(ToolUpdateResult::Redraw);
+            }
+        }
+
         // Check body hit
-        if let Some(idx) = self.renderer.hit_test(me.pos)
-            && let Some(new_idx) = self.renderer.move_drawable_to_end(idx)
-            && let (Some(drawable), Some(bounds)) = (
-                self.renderer.get_drawable_clone(new_idx),
-                self.renderer.get_drawable_bounds(new_idx),
-            )
-        {
-            self.style.fill = drawable.get_fill();
-            self.renderer.set_hidden_drawable_index(Some(new_idx));
-            self.pointer_tool
-                .borrow_mut()
-                .begin_move(new_idx, drawable, bounds);
-            return Some(ToolUpdateResult::Redraw);
+        let idx_to_select = if is_alt_click {
+            // Alt+Click: cycle through all overlapping objects
+            let all_hits = self.renderer.hit_test(me.pos);
+            if !all_hits.is_empty() {
+                // Get the next index in the cycle
+                self.pointer_tool
+                    .borrow_mut()
+                    .cycle_to_next_object(me.pos, all_hits)
+            } else {
+                None
+            }
+        } else {
+            // Normal click: select topmost object
+            self.renderer.hit_test(me.pos).first().copied()
+        };
+
+        if let Some(idx) = idx_to_select {
+            let sel_idx = if is_alt_click {
+                // Alt+Click: don't move to end, just use the index as-is
+                idx
+            } else {
+                // Normal click: move to end and use new index
+                self.renderer.move_drawable_to_end(idx).unwrap_or(idx)
+            };
+
+            if let (Some(drawable), Some(bounds)) = (
+                self.renderer.get_drawable_clone(sel_idx),
+                self.renderer.get_drawable_bounds(sel_idx),
+            ) {
+                self.renderer.set_hidden_drawable_index(Some(sel_idx));
+                self.pointer_tool
+                    .borrow_mut()
+                    .begin_move(sel_idx, drawable, bounds);
+                return Some(ToolUpdateResult::Redraw);
+            }
         }
 
         // Clicked on empty space: deselect
@@ -839,7 +884,7 @@ impl SketchBoard {
         pos: Vec2D,
         sender: &ComponentSender<Self>,
     ) -> Option<ToolUpdateResult> {
-        let idx = self.renderer.hit_test(pos)?;
+        let idx = self.renderer.hit_test(pos).first().copied()?;
         let drawable = self.renderer.get_drawable_clone(idx)?;
         let (text_pos, content, style) = drawable.edit_info()?;
 
