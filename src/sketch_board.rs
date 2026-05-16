@@ -50,6 +50,8 @@ pub enum SketchBoardOutput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    SetColor(crate::style::Color),
+    SetFill(bool),
     DimensionsUpdate(Option<(i32, i32)>),
     ToolEditingChanged(bool),
 }
@@ -784,6 +786,7 @@ impl SketchBoard {
     fn handle_pointer_tool_begin_drag(
         &mut self,
         me: &crate::sketch_board::MouseEventMsg,
+        sender: &ComponentSender<Self>,
     ) -> Option<ToolUpdateResult> {
         use crate::sketch_board::MouseButton;
         use crate::sketch_board::MouseEventType;
@@ -825,6 +828,16 @@ impl SketchBoard {
                 && me.pos.y >= tl.y
                 && me.pos.y <= br.y
             {
+                if let Some(color) = drawable.get_color() {
+                    self.style.color = color;
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::SetColor(self.style.color));
+                }
+                self.style.fill = drawable.get_fill();
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SetFill(self.style.fill));
                 self.renderer.set_hidden_drawable_index(Some(sel_idx));
                 self.pointer_tool
                     .borrow_mut()
@@ -863,6 +876,16 @@ impl SketchBoard {
                 self.renderer.get_drawable_clone(sel_idx),
                 self.renderer.get_drawable_bounds(sel_idx),
             ) {
+                if let Some(color) = drawable.get_color() {
+                    self.style.color = color;
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::SetColor(self.style.color));
+                }
+                self.style.fill = drawable.get_fill();
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SetFill(self.style.fill));
                 self.renderer.set_hidden_drawable_index(Some(sel_idx));
                 self.pointer_tool
                     .borrow_mut()
@@ -1032,6 +1055,13 @@ impl SketchBoard {
                 self.active_tool
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style))
+            }
+            ToolbarEvent::SetFill(fill_enabled) => {
+                self.style.fill = fill_enabled;
+                self.active_tool
+                    .borrow_mut()
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+                ToolUpdateResult::Redraw
             }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::Resize => self.handle_resize(),
@@ -1395,7 +1425,7 @@ impl Component for SketchBoard {
                             if me.type_ == MouseEventType::Click && me.n_pressed == 2 {
                                 self.handle_pointer_tool_double_click(me.pos, &sender)
                             } else {
-                                self.handle_pointer_tool_begin_drag(me)
+                                self.handle_pointer_tool_begin_drag(me, &sender)
                             }
                         } else {
                             None
