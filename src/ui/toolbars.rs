@@ -29,6 +29,7 @@ pub struct StyleToolbar {
     custom_color: Color,
     custom_color_pixbuf: Pixbuf,
     color_action: SimpleAction,
+    size_action: SimpleAction,
     fill_enabled: bool,
     visible: bool,
     annotation_size: f32,
@@ -72,6 +73,7 @@ pub enum StyleToolbarInput {
     ColorButtonSelected(ColorButtons),
     SetColor(Color),
     SetFill(bool),
+    SetSize(Size),
     ShowColorDialog,
     ColorDialogFinished(Option<Color>),
     SetVisibility(bool),
@@ -624,14 +626,8 @@ impl Component for StyleToolbar {
                     "paint-bucket-regular"
                 },
                 set_tooltip: "Fill shape",
-                connect_clicked[sender] => move |button| {
+                connect_clicked[sender] => move |_| {
                     sender.output_sender().emit(ToolbarEvent::ToggleFill);
-                    let new_icon = if button.icon_name() == Some("paint-bucket-regular".into()) {
-                        "paint-bucket-filled"
-                    } else {
-                        "paint-bucket-regular"
-                    };
-                    button.set_icon_name(new_icon);
                 },
             },
         },
@@ -685,6 +681,10 @@ impl Component for StyleToolbar {
             StyleToolbarInput::SetFill(fill_enabled) => {
                 self.fill_enabled = fill_enabled;
             }
+            StyleToolbarInput::SetSize(size) => {
+                self.size_action.change_state(&size.to_variant());
+            }
+
             StyleToolbarInput::ShowAnnotationDialog => {
                 self.show_annotation_dialog(sender, root.toplevel_window());
             }
@@ -775,6 +775,7 @@ impl Component for StyleToolbar {
             custom_color,
             custom_color_pixbuf,
             color_action: SimpleAction::from(color_action.clone()),
+            size_action: SimpleAction::from(size_action.clone()),
             fill_enabled: APP_CONFIG.read().default_fill_shapes(),
             visible: !APP_CONFIG.read().default_hide_toolbars(),
             annotation_size: APP_CONFIG.read().annotation_size_factor(),

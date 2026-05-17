@@ -52,6 +52,7 @@ pub enum SketchBoardOutput {
     ColorSwitchShortcut(u64),
     SetColor(crate::style::Color),
     SetFill(bool),
+    SetSize(crate::style::Size),
     DimensionsUpdate(Option<(i32, i32)>),
     ToolEditingChanged(bool),
 }
@@ -260,6 +261,29 @@ pub struct SketchBoard {
 }
 
 impl SketchBoard {
+    fn sync_toolbar_style_from_drawable(
+        &mut self,
+        drawable: &dyn crate::tools::Drawable,
+        sender: &ComponentSender<Self>,
+    ) {
+        if let Some(color) = drawable.get_color() {
+            self.style.color = color;
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SetColor(self.style.color));
+        }
+        self.style.fill = drawable.get_fill();
+        sender
+            .output_sender()
+            .emit(SketchBoardOutput::SetFill(self.style.fill));
+        if let Some(size) = drawable.get_size() {
+            self.style.size = size;
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SetSize(self.style.size));
+        }
+    }
+
     fn refresh_screen(&mut self) {
         self.renderer.queue_render();
     }
@@ -804,6 +828,7 @@ impl SketchBoard {
                     self.renderer.get_drawable_bounds(idx),
                 )
             {
+                self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
                 self.renderer.set_hidden_drawable_index(Some(idx));
                 self.pointer_tool
                     .borrow_mut()
@@ -828,16 +853,7 @@ impl SketchBoard {
                 && me.pos.y >= tl.y
                 && me.pos.y <= br.y
             {
-                if let Some(color) = drawable.get_color() {
-                    self.style.color = color;
-                    sender
-                        .output_sender()
-                        .emit(SketchBoardOutput::SetColor(self.style.color));
-                }
-                self.style.fill = drawable.get_fill();
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::SetFill(self.style.fill));
+                self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
                 self.renderer.set_hidden_drawable_index(Some(sel_idx));
                 self.pointer_tool
                     .borrow_mut()
@@ -876,16 +892,7 @@ impl SketchBoard {
                 self.renderer.get_drawable_clone(sel_idx),
                 self.renderer.get_drawable_bounds(sel_idx),
             ) {
-                if let Some(color) = drawable.get_color() {
-                    self.style.color = color;
-                    sender
-                        .output_sender()
-                        .emit(SketchBoardOutput::SetColor(self.style.color));
-                }
-                self.style.fill = drawable.get_fill();
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::SetFill(self.style.fill));
+                self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
                 self.renderer.set_hidden_drawable_index(Some(sel_idx));
                 self.pointer_tool
                     .borrow_mut()
@@ -1016,9 +1023,28 @@ impl SketchBoard {
             }
             ToolbarEvent::SizeSelected(size) => {
                 self.style.size = size;
-                self.active_tool
+                let mut result = self
+                    .active_tool
                     .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+
+                if self.active_tool_type() == Tools::Pointer {
+                    let selected_index = self.pointer_tool.borrow().selected_index();
+                    if let Some(index) = selected_index
+                        && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
+                    {
+                        drawable.set_size(size);
+                        self.renderer.replace_drawable(index, drawable);
+                        if let Some(new_bounds) = self.renderer.get_drawable_bounds(index) {
+                            self.pointer_tool
+                                .borrow_mut()
+                                .set_selection(index, new_bounds);
+                        }
+                        result = ToolUpdateResult::Redraw;
+                    }
+                }
+
+                result
             }
             ToolbarEvent::SaveFile => self.handle_action(&[Action::SaveToFile]),
             ToolbarEvent::CopyClipboard => self.handle_action(&[Action::SaveToClipboard]),
@@ -1027,6 +1053,9 @@ impl SketchBoard {
             ToolbarEvent::Reset => self.handle_reset(),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SetFill(self.style.fill));
                 let mut result = self
                     .active_tool
                     .borrow_mut()
