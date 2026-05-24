@@ -41,8 +41,11 @@ impl From<command_line::Highlighters> for Highlighters {
 
 #[derive(Clone, Debug)]
 struct BlockHighlight {
+    origin: Vec2D,
     top_left: Vec2D,
     size: Option<Vec2D>,
+    centered: bool,
+    finishing: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -106,6 +109,15 @@ impl Highlight for Highlighter<BlockHighlight> {
 
         let (pos, size) = math::rect_ensure_positive_size(self.data.top_left, size);
 
+        if !self.data.finishing && self.data.centered {
+            let mut helpers = Path::new();
+            helpers.circle(self.data.origin.x, self.data.origin.y, 2.0);
+            canvas.stroke_path(
+                &helpers,
+                &femtovg::Paint::color(femtovg::Color::rgba(128, 128, 128, 255)),
+            );
+        }
+
         let mut shadow_path = Path::new();
         shadow_path.rounded_rect(
             pos.x,
@@ -127,6 +139,40 @@ impl Highlight for Highlighter<BlockHighlight> {
     }
 }
 
+impl BlockHighlight {
+    fn calculate_shape(&mut self, pos: Vec2D, modifier: ModifierType) {
+        self.centered = modifier & ModifierType::ALT_MASK == ModifierType::ALT_MASK;
+        match modifier & (ModifierType::ALT_MASK | ModifierType::SHIFT_MASK) {
+            v if v == ModifierType::ALT_MASK | ModifierType::SHIFT_MASK => {
+                let max_size = pos.x.abs().max(pos.y.abs());
+                self.top_left.x = self.origin.x - max_size * pos.x.signum() / 2.0;
+                self.top_left.y = self.origin.y - max_size * pos.y.signum() / 2.0;
+                self.size = Some(Vec2D {
+                    x: max_size * pos.x.signum(),
+                    y: max_size * pos.y.signum(),
+                });
+            }
+            ModifierType::ALT_MASK => {
+                self.top_left.x = self.origin.x - pos.x / 2.0;
+                self.top_left.y = self.origin.y - pos.y / 2.0;
+                self.size = Some(pos);
+            }
+            ModifierType::SHIFT_MASK => {
+                self.top_left = self.origin;
+                let max_size = pos.x.abs().max(pos.y.abs());
+                self.size = Some(Vec2D {
+                    x: max_size * pos.x.signum(),
+                    y: max_size * pos.y.signum(),
+                });
+            }
+            _ => {
+                self.top_left = self.origin;
+                self.size = Some(pos);
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 enum HighlightKind {
     Block(Highlighter<BlockHighlight>),
@@ -142,6 +188,141 @@ pub struct HighlightTool {
 }
 
 impl Drawable for HighlightKind {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        match self {
+            HighlightKind::Block(h) => {
+                let size = h.data.size?;
+                let (tl, size) = math::rect_ensure_positive_size(h.data.top_left, size);
+                Some((tl, tl + size))
+            }
+            HighlightKind::Freehand(h) => {
+                let mut min_x = f32::MAX;
+                let mut min_y = f32::MAX;
+                let mut max_x = f32::MIN;
+                let mut max_y = f32::MIN;
+                let first = h.data.points.first()?;
+                for (i, p) in h.data.points.iter().enumerate() {
+                    // First point is absolute, subsequent points are stored as offsets.
+                    let abs = if i == 0 { *p } else { *first + *p };
+                    min_x = min_x.min(abs.x);
+                    min_y = min_y.min(abs.y);
+                    max_x = max_x.max(abs.x);
+                    max_y = max_y.max(abs.y);
+                }
+                Some((Vec2D::new(min_x, min_y), Vec2D::new(max_x, max_y)))
+            }
+        }
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        match self {
+            HighlightKind::Block(h) => {
+                h.data.top_left += delta;
+            }
+            HighlightKind::Freehand(h) => {
+                if let Some(first) = h.data.points.first_mut() {
+                    *first += delta;
+                }
+            }
+        }
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        match self {
+            HighlightKind::Block(h) => {
+                h.data.top_left = tl;
+                h.data.size = Some(br - tl);
+            }
+            HighlightKind::Freehand(h) => {
+                // Resize freehand by scaling all points from current bounds to new bounds.
+                if h.data.points.is_empty() {
+                    return;
+                }
+
+                let first_abs = h.data.points[0];
+                let mut min_x = f32::MAX;
+                let mut min_y = f32::MAX;
+                let mut max_x = f32::MIN;
+                let mut max_y = f32::MIN;
+                for (i, point) in h.data.points.iter().enumerate() {
+                    let abs = if i == 0 { *point } else { first_abs + *point };
+                    min_x = min_x.min(abs.x);
+                    min_y = min_y.min(abs.y);
+                    max_x = max_x.max(abs.x);
+                    max_y = max_y.max(abs.y);
+                }
+
+                let current_tl = Vec2D::new(min_x, min_y);
+                let current_br = Vec2D::new(max_x, max_y);
+
+                let current_size = current_br - current_tl;
+                let new_size = br - tl;
+
+                let scale_x = if current_size.x.abs() > f32::EPSILON {
+                    new_size.x / current_size.x
+                } else {
+                    1.0
+                };
+                let scale_y = if current_size.y.abs() > f32::EPSILON {
+                    new_size.y / current_size.y
+                } else {
+                    1.0
+                };
+
+                let mut transformed_abs_points = Vec::with_capacity(h.data.points.len());
+
+                for (i, point) in h.data.points.iter().enumerate() {
+                    let abs = if i == 0 { *point } else { first_abs + *point };
+                    let relative = abs - current_tl;
+                    transformed_abs_points.push(Vec2D::new(
+                        tl.x + relative.x * scale_x,
+                        tl.y + relative.y * scale_y,
+                    ));
+                }
+
+                let new_first_abs = transformed_abs_points[0];
+                h.data.points[0] = new_first_abs;
+                for (target, abs) in h
+                    .data
+                    .points
+                    .iter_mut()
+                    .skip(1)
+                    .zip(transformed_abs_points.iter().skip(1))
+                {
+                    *target = *abs - new_first_abs;
+                }
+            }
+        }
+    }
+
+    fn set_color(&mut self, color: crate::style::Color) {
+        match self {
+            HighlightKind::Block(h) => h.style.color = color,
+            HighlightKind::Freehand(h) => h.style.color = color,
+        }
+    }
+
+    fn get_color(&self) -> Option<crate::style::Color> {
+        Some(match self {
+            HighlightKind::Block(h) => h.style.color,
+            HighlightKind::Freehand(h) => h.style.color,
+        })
+    }
+
+    fn get_size(&self) -> Option<crate::style::Size> {
+        Some(match self {
+            HighlightKind::Block(h) => h.style.size,
+            HighlightKind::Freehand(h) => h.style.size,
+        })
+    }
+
+    fn set_size(&mut self, size: crate::style::Size) {
+        match self {
+            HighlightKind::Block(h) => h.style.size = size,
+            HighlightKind::Freehand(h) => h.style.size = size,
+        }
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -188,8 +369,11 @@ impl Tool for HighlightTool {
                         self.highlighter =
                             Some(HighlightKind::Block(Highlighter::<BlockHighlight> {
                                 data: BlockHighlight {
+                                    origin: event.pos,
                                     top_left: event.pos,
                                     size: None,
+                                    centered: false,
+                                    finishing: false,
                                 },
                                 style: self.style,
                             }))
@@ -224,15 +408,7 @@ impl Tool for HighlightTool {
                     HighlightKind::Block(highlighter) => {
                         // When shift is pressed when using the block highlighter, it transforms
                         // the area into a perfect square (in the direction they intended).
-                        if shift_pressed {
-                            let max_size = event.pos.x.abs().max(event.pos.y.abs());
-                            highlighter.data.size = Some(Vec2D {
-                                x: max_size * event.pos.x.signum(),
-                                y: max_size * event.pos.y.signum(),
-                            });
-                        } else {
-                            highlighter.data.size = Some(event.pos);
-                        };
+                        highlighter.data.calculate_shape(event.pos, event.modifier);
                         ToolUpdateResult::Redraw
                     }
                     HighlightKind::Freehand(highlighter) => {
@@ -283,9 +459,15 @@ impl Tool for HighlightTool {
                         ToolUpdateResult::Redraw
                     }
                 };
+
                 if event.type_ == MouseEventType::UpdateDrag {
                     return update;
-                };
+                }
+
+                if let HighlightKind::Block(highlighter) = &mut *highlighter_kind {
+                    highlighter.data.finishing = true;
+                }
+
                 let result = highlighter_kind.clone_box();
                 self.highlighter = None;
                 ToolUpdateResult::Commit(result)

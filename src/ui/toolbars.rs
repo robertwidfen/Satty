@@ -30,6 +30,9 @@ pub struct StyleToolbar {
     custom_color_pixbuf: Pixbuf,
     color_action: SimpleAction,
     visible: bool,
+    current_size: Size,
+    size_action: SimpleAction,
+    fill_enabled: bool,
     annotation_size: f32,
     annotation_size_formatted: String,
     annotation_dialog_controller: Option<Controller<AnnotationSizeDialog>>,
@@ -67,10 +70,15 @@ pub enum ToolsToolbarInput {
 #[derive(Debug, Copy, Clone)]
 pub enum StyleToolbarInput {
     ColorButtonSelected(ColorButtons),
+    SizeButtonSelected(Size),
+    CycleSize,
+    SetColor(Color),
+    SetSize(Size),
     ShowColorDialog,
     ColorDialogFinished(Option<Color>),
     SetVisibility(bool),
     ToggleVisibility,
+    SetFill(bool),
     ShowAnnotationDialog,
     AnnotationDialogFinished(Option<f32>),
     DimensionsChanged((i32, i32)),
@@ -138,7 +146,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "recycling-bin",
-                set_tooltip: "Reset",
+                set_tooltip: "Reset (Shift+Delete)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Reset);},
             },
             gtk::Separator {},
@@ -581,20 +589,15 @@ impl Component for StyleToolbar {
                 set_focusable: false,
                 set_hexpand: false,
 
-                set_icon_name: if APP_CONFIG.read().default_fill_shapes() {
+                #[watch]
+                set_icon_name: if model.fill_enabled {
                     "paint-bucket-filled"
                 } else {
                     "paint-bucket-regular"
                 },
-                set_tooltip: "Fill shape",
-                connect_clicked[sender] => move |button| {
+                set_tooltip: "Fill shape (f)",
+                connect_clicked[sender] => move |_| {
                     sender.output_sender().emit(ToolbarEvent::ToggleFill);
-                    let new_icon = if button.icon_name() == Some("paint-bucket-regular".into()) {
-                        "paint-bucket-filled"
-                    } else {
-                        "paint-bucket-regular"
-                    };
-                    button.set_icon_name(new_icon);
                 },
             },
         },
@@ -627,6 +630,48 @@ impl Component for StyleToolbar {
                     .output_sender()
                     .emit(ToolbarEvent::ColorSelected(color));
             }
+            StyleToolbarInput::SetColor(color) => {
+                let palette_match = APP_CONFIG
+                    .read()
+                    .color_palette()
+                    .palette()
+                    .iter()
+                    .position(|&p| p == color)
+                    .map(|index| ColorButtons::Palette(index as u64))
+                    .unwrap_or(ColorButtons::Custom);
+
+                // Only update custom_color if this is not a palette color
+                if matches!(palette_match, ColorButtons::Custom) {
+                    self.custom_color = color;
+                    self.custom_color_pixbuf = create_icon_pixbuf(color);
+                }
+
+                self.color_action.change_state(&palette_match.to_variant());
+            }
+            StyleToolbarInput::SetSize(size) => {
+                self.current_size = size;
+                self.size_action.change_state(&size.to_variant());
+            }
+
+            StyleToolbarInput::SizeButtonSelected(size) => {
+                self.current_size = size;
+                sender
+                    .output_sender()
+                    .emit(ToolbarEvent::SizeSelected(size));
+            }
+
+            StyleToolbarInput::CycleSize => {
+                self.current_size = match self.current_size {
+                    Size::Small => Size::Large,
+                    Size::Medium => Size::Small,
+                    Size::Large => Size::Medium,
+                };
+                self.size_action
+                    .change_state(&self.current_size.to_variant());
+                sender
+                    .output_sender()
+                    .emit(ToolbarEvent::SizeSelected(self.current_size));
+            }
 
             StyleToolbarInput::ShowAnnotationDialog => {
                 self.show_annotation_dialog(sender, root.toplevel_window());
@@ -646,6 +691,9 @@ impl Component for StyleToolbar {
             StyleToolbarInput::SetVisibility(visible) => self.visible = visible,
             StyleToolbarInput::ToggleVisibility => {
                 self.visible = !self.visible;
+            }
+            StyleToolbarInput::SetFill(fill_enabled) => {
+                self.fill_enabled = fill_enabled;
             }
             StyleToolbarInput::DimensionsChanged((width, height)) => {
                 self.output_dimensions = format!("{}x{}", width, height);
@@ -691,9 +739,7 @@ impl Component for StyleToolbar {
         let size_action: RelmAction<SizeAction> =
             RelmAction::new_stateful_with_target_value(&Size::Medium, move |_, state, value| {
                 *state = value;
-                sender_tmp
-                    .output_sender()
-                    .emit(ToolbarEvent::SizeSelected(*state));
+                sender_tmp.input(StyleToolbarInput::SizeButtonSelected(*state));
             });
 
         let custom_color = APP_CONFIG
@@ -710,7 +756,10 @@ impl Component for StyleToolbar {
             custom_color,
             custom_color_pixbuf,
             color_action: SimpleAction::from(color_action.clone()),
+            current_size: Size::Medium,
+            size_action: SimpleAction::from(size_action.clone()),
             visible: !APP_CONFIG.read().default_hide_toolbars(),
+            fill_enabled: APP_CONFIG.read().default_fill_shapes(),
             annotation_size: APP_CONFIG.read().annotation_size_factor(),
             annotation_size_formatted: format!(
                 "{0:.2}",

@@ -25,6 +25,57 @@ pub struct Rectangle {
 }
 
 impl Drawable for Rectangle {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let size = self.size?;
+        Some((
+            Vec2D::new(
+                self.top_left.x.min(self.top_left.x + size.x),
+                self.top_left.y.min(self.top_left.y + size.y),
+            ),
+            Vec2D::new(
+                self.top_left.x.max(self.top_left.x + size.x),
+                self.top_left.y.max(self.top_left.y + size.y),
+            ),
+        ))
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+        self.origin += delta;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        self.top_left = tl;
+        self.size = Some(br - tl);
+        self.origin = tl;
+        self.centered = false;
+        self.finishing = true;
+    }
+
+    fn set_color(&mut self, color: crate::style::Color) {
+        self.style.color = color;
+    }
+
+    fn get_color(&self) -> Option<crate::style::Color> {
+        Some(self.style.color)
+    }
+
+    fn get_fill(&self) -> bool {
+        self.style.fill
+    }
+
+    fn set_fill(&mut self, fill: bool) {
+        self.style.fill = fill;
+    }
+
+    fn get_size(&self) -> Option<crate::style::Size> {
+        Some(self.style.size)
+    }
+
+    fn set_size(&mut self, size: crate::style::Size) {
+        self.style.size = size;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

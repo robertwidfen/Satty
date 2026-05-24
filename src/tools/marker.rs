@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::f64::consts::PI;
 use std::rc::Rc;
 
@@ -23,10 +23,51 @@ pub struct Marker {
     pos: Vec2D,
     number: u16,
     style: Style,
+    /// Exact circle radius cached from the last draw call. Starts as a font-size placeholder.
+    radius: Cell<f32>,
     tool_next_number: Rc<RefCell<u16>>,
 }
 
 impl Drawable for Marker {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let r = self.radius.get();
+        Some((
+            Vec2D::new(self.pos.x - r, self.pos.y - r),
+            Vec2D::new(self.pos.x + r, self.pos.y + r),
+        ))
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.pos += delta;
+    }
+
+    fn set_color(&mut self, color: crate::style::Color) {
+        self.style.color = color;
+    }
+
+    fn get_color(&self) -> Option<crate::style::Color> {
+        Some(self.style.color)
+    }
+
+    fn get_size(&self) -> Option<crate::style::Size> {
+        Some(self.style.size)
+    }
+
+    fn set_size(&mut self, size: crate::style::Size) {
+        self.style.size = size;
+
+        // Keep bounds in sync before the next draw call by updating the cached radius.
+        let font_size = self
+            .style
+            .size
+            .to_text_size(self.style.annotation_size_factor) as f32;
+        let digit_count = self.number.to_string().chars().count().max(1) as f32;
+        let approx_text_width = font_size * 0.6 * digit_count;
+        let approx_radius =
+            (approx_text_width * approx_text_width + font_size * font_size).sqrt() * 0.8;
+        self.radius.set(approx_radius);
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -72,16 +113,6 @@ impl Drawable for Marker {
             femtovg::Solidity::Solid,
         );
 
-        let mut outer_circle_path = Path::new();
-        outer_circle_path.arc(
-            self.pos.x,
-            self.pos.y,
-            circle_radius,
-            0.0,
-            2.0 * PI as f32,
-            femtovg::Solidity::Solid,
-        );
-
         let circle_paint = Paint::color(marker_color).with_line_width(
             self.style
                 .size
@@ -89,9 +120,10 @@ impl Drawable for Marker {
                 * 2.0,
         );
 
+        self.radius.set(circle_radius * 0.8);
+
         canvas.save();
         canvas.fill_path(&inner_circle_path, &circle_paint);
-        canvas.stroke_path(&outer_circle_path, &circle_paint);
         canvas.fill_text(self.pos.x, self.pos.y, &text, &paint)?;
         canvas.restore();
         Ok(())
@@ -128,14 +160,24 @@ impl Tool for MarkerTool {
         ToolUpdateResult::Unmodified
     }
 
+    fn handle_reset(&mut self) {
+        *self.next_number.borrow_mut() = 1;
+    }
+
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::Click => {
                 if event.button == MouseButton::Primary {
+                    let font_size = self
+                        .style
+                        .size
+                        .to_text_size(self.style.annotation_size_factor)
+                        as f32;
                     let marker = Marker {
                         pos: event.pos,
                         number: *self.next_number.borrow(),
                         style: self.style,
+                        radius: Cell::new(font_size),
                         tool_next_number: self.next_number.clone(),
                     };
 

@@ -36,6 +36,7 @@ mod tools;
 mod ui;
 
 use crate::sketch_board::{SketchBoard, SketchBoardInput};
+use crate::style::{Color, Size};
 use crate::tools::Tools;
 
 pub static START_TIME: LazyLock<chrono::DateTime<chrono::Local>> =
@@ -69,6 +70,10 @@ enum AppInput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    SizeCycleShortcut,
+    FillToggled(bool),
+    ColorToggled(Color),
+    SizeToggled(Size),
     ScaleFactorChanged,
     FullscreenChanged(bool),
     DimensionsUpdate(Option<(i32, i32)>),
@@ -90,10 +95,11 @@ impl App {
     }
 
     fn resize_window_initial(&self, root: &Window, sender: ComponentSender<Self>) {
-        let scale = APP_CONFIG.read().input_scale();
-        let fullscreen = APP_CONFIG.read().fullscreen();
-        let resize = APP_CONFIG.read().resize();
-        let floating_hack = APP_CONFIG.read().floating_hack();
+        let config = APP_CONFIG.read();
+        let scale = config.input_scale().unwrap_or(1.0);
+        let fullscreen = config.fullscreen();
+        let resize = config.resize();
+        let floating_hack = config.floating_hack();
 
         let image_width = (self.image_dimensions.0 as f32 / scale) as f64;
         let image_height = (self.image_dimensions.1 as f32 / scale) as f64;
@@ -257,11 +263,35 @@ impl Component for App {
                     .emit(ToolsToolbarInput::SwitchSelectedTool(tool));
             }
             AppInput::ColorSwitchShortcut(index) => {
+                let palette_len = APP_CONFIG.read().color_palette().palette().len() as u64;
+                let color_button = if index < palette_len {
+                    ui::toolbars::ColorButtons::Palette(index)
+                } else {
+                    ui::toolbars::ColorButtons::Custom
+                };
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::ColorButtonSelected(
-                        ui::toolbars::ColorButtons::Palette(index),
-                    ));
+                    .emit(StyleToolbarInput::ColorButtonSelected(color_button));
+            }
+            AppInput::SizeCycleShortcut => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::CycleSize);
+            }
+            AppInput::FillToggled(fill_enabled) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetFill(fill_enabled));
+            }
+            AppInput::ColorToggled(color) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetColor(color));
+            }
+            AppInput::SizeToggled(size) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetSize(size));
             }
             AppInput::ScaleFactorChanged => {
                 self.sketch_board
@@ -322,6 +352,12 @@ impl Component for App {
                     }
                     SketchBoardOutput::ColorSwitchShortcut(index) => {
                         AppInput::ColorSwitchShortcut(index)
+                    }
+                    SketchBoardOutput::SizeCycleShortcut => AppInput::SizeCycleShortcut,
+                    SketchBoardOutput::ColorToggled(color) => AppInput::ColorToggled(color),
+                    SketchBoardOutput::SizeToggled(size) => AppInput::SizeToggled(size),
+                    SketchBoardOutput::FillToggled(fill_enabled) => {
+                        AppInput::FillToggled(fill_enabled)
                     }
                     SketchBoardOutput::DimensionsUpdate(dimensions) => {
                         AppInput::DimensionsUpdate(dimensions)

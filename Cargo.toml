@@ -23,7 +23,7 @@ ci-release = []
 [dependencies]
 satty_cli.workspace = true
 relm4 = { version = "0.10.1", features = ["macros", "libadwaita", "gnome_42"] }
-tokio = { version = "1.51.0", features = ["time"] }
+tokio = { version = "1.52.3", features = ["time"] }
 
 # error handling
 anyhow = "1.0"
@@ -41,12 +41,12 @@ hex_color = {version = "3", features = ["serde"]}
 chrono = "0.4.44"
 
 # opengl rendering backend
-femtovg = "0.23"
+femtovg = "0.25"
 libloading = "0.9"
 epoxy = "0.1.0"
 glow = "0.17.0"
 resource = "0.6.1"  # font emedding
-fontconfig = "0.10.0"  # font loading
+fontconfig = "0.10.2"  # font loading
 keycode = "1.0.0"
 
 [dependencies.relm4-icons]
@@ -55,11 +55,11 @@ version = "0.10.0"
 
 [build-dependencies]
 clap.workspace = true
-clap_complete = "4.6.0"
+clap_complete = "4.6.5"
 clap_complete_nushell = "4.6.0"
 satty_cli.workspace = true
 clap_complete_fig = "4.5.2"
-relm4-icons-build = "0.10"
+relm4-icons-build = "0.11"
 clap_mangen = "0.3.0"
 
 [workspace]
@@ -75,6 +75,6 @@ repository = "https://github.com/Satty-org/Satty"
 license = "MPL-2.0"
 
 [workspace.dependencies]
-clap = { version = "4.6.0", features = ["derive"] }
+clap = { version = "4.6.1", features = ["derive"] }
 satty_cli = { path = "cli", version = "0.20.1" }
 serde = { version = "1.0", features = ["derive"] }

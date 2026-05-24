@@ -8,6 +8,7 @@ use relm4::gtk::gdk_pixbuf::glib::Bytes;
 use std::cell::RefCell;
 use std::io::Write;
 use std::panic;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::{fs, io};
@@ -23,10 +24,13 @@ use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::math::Vec2D;
 use crate::notification::log_result;
 use crate::style::Style;
-use crate::tools::{Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
+use crate::tools::{PointerTool, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
 use crate::ui::toolbars::ToolbarEvent;
+use xdg::BaseDirectories;
 
 type RenderedImage = Img<Vec<RGBA<u8>>>;
+const SAVE_AS_LAST_DIR_FILE: &str = "save_as_last_dir";
+const SAVE_AS_LAST_DIR_MAX_BYTES: u64 = 10_000;
 
 #[derive(Debug, Clone)]
 pub enum SketchBoardInput {
@@ -46,6 +50,10 @@ pub enum SketchBoardOutput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    SizeCycleShortcut,
+    FillToggled(bool),
+    ColorToggled(crate::style::Color),
+    SizeToggled(crate::style::Size),
     DimensionsUpdate(Option<(i32, i32)>),
 }
 
@@ -240,12 +248,39 @@ pub struct SketchBoard {
     renderer: FemtoVGArea,
     active_tool: Rc<RefCell<dyn Tool>>,
     tools: ToolsManager,
+    pointer_tool: Rc<RefCell<PointerTool>>,
+    text_tool: Rc<RefCell<TextTool>>,
+    return_to_pointer_after_text_commit: bool,
+    temporary_pointer_previous_tool: Option<Tools>,
     style: Style,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
 }
 
 impl SketchBoard {
+    fn sync_toolbar_style_from_drawable(
+        &mut self,
+        drawable: &dyn crate::tools::Drawable,
+        sender: &ComponentSender<Self>,
+    ) {
+        if let Some(color) = drawable.get_color() {
+            self.style.color = color;
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::ColorToggled(self.style.color));
+        }
+        if let Some(size) = drawable.get_size() {
+            self.style.size = size;
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SizeToggled(self.style.size));
+        }
+        self.style.fill = drawable.get_fill();
+        sender
+            .output_sender()
+            .emit(SketchBoardOutput::FillToggled(self.style.fill));
+    }
+
     fn refresh_screen(&mut self) {
         self.renderer.queue_render();
     }
@@ -365,8 +400,97 @@ impl SketchBoard {
         relm4::main_application().quit();
     }
 
+    fn resolve_output_filename(output_filename: &str) -> Option<String> {
+        let delayed_format = chrono::Local::now().format(output_filename);
+        let mut output_filename = if panic::catch_unwind(|| delayed_format.to_string()).is_ok() {
+            delayed_format.to_string()
+        } else {
+            eprintln!(
+                "Warning: Could not format filename {output_filename} due to chrono format error, falling back to literal filename."
+            );
+            output_filename.to_owned()
+        };
+
+        if let Some(tilde_stripped) =
+            output_filename.strip_prefix(&format!("~{}", std::path::MAIN_SEPARATOR_STR))
+        {
+            if let Some(mut home_dir) = std::env::home_dir() {
+                home_dir.push(tilde_stripped);
+                output_filename = home_dir.to_string_lossy().into_owned();
+            } else {
+                log_result(
+                    "~ found but could not determine homedir",
+                    !APP_CONFIG.read().disable_notifications(),
+                );
+                return None;
+            }
+        }
+
+        Some(output_filename)
+    }
+
+    fn configured_output_path() -> Option<PathBuf> {
+        APP_CONFIG
+            .read()
+            .output_filename()
+            .and_then(|output_filename| {
+                if output_filename == "-" {
+                    None
+                } else {
+                    Self::resolve_output_filename(output_filename).map(PathBuf::from)
+                }
+            })
+    }
+
+    fn save_as_last_dir_file() -> Option<PathBuf> {
+        let dirs = BaseDirectories::with_prefix(env!("CARGO_PKG_NAME"));
+        dirs.get_state_file(SAVE_AS_LAST_DIR_FILE)
+    }
+
+    fn save_as_last_dir_file_for_write() -> Option<PathBuf> {
+        let dirs = BaseDirectories::with_prefix(env!("CARGO_PKG_NAME"));
+        dirs.place_state_file(SAVE_AS_LAST_DIR_FILE).ok()
+    }
+
+    fn save_as_initial_dir(
+        last_dir_file: Option<&Path>,
+        configured_output_path: Option<&Path>,
+    ) -> Option<PathBuf> {
+        if let Some(last_dir_file) = last_dir_file
+            && fs::metadata(last_dir_file).is_ok_and(|metadata| {
+                metadata.is_file() && metadata.len() <= SAVE_AS_LAST_DIR_MAX_BYTES
+            })
+            && let Ok(last_dir) = fs::read_to_string(last_dir_file)
+        {
+            let last_dir = PathBuf::from(last_dir);
+            if last_dir.is_dir() {
+                return Some(last_dir);
+            }
+        }
+
+        configured_output_path
+            .and_then(Path::parent)
+            .filter(|parent| parent.is_dir())
+            .map(Path::to_path_buf)
+    }
+
+    fn remember_save_as_dir(output_filename: &Path) {
+        let Some(last_dir_file) = Self::save_as_last_dir_file_for_write() else {
+            return;
+        };
+        Self::write_save_as_last_dir(&last_dir_file, output_filename);
+    }
+
+    fn write_save_as_last_dir(last_dir_file: &Path, output_filename: &Path) {
+        let Some(parent) = output_filename.parent() else {
+            return;
+        };
+
+        let _ = fs::write(last_dir_file, parent.to_string_lossy().as_bytes());
+    }
+
     fn handle_save(&self, image: &Pixbuf) {
-        let mut output_filename = match APP_CONFIG.read().output_filename() {
+        let output_filename = match APP_CONFIG.read().output_filename() {
             None => {
                 println!("No Output filename specified!");
                 return;
@@ -374,19 +498,9 @@ impl SketchBoard {
             Some(o) => o.clone(),
         };
 
-        // run the output filename by "chrono date format"
-        let delayed_format = chrono::Local::now().format(&output_filename);
-        let result = panic::catch_unwind(|| {
-            delayed_format.to_string();
-        });
-
-        if result.is_err() {
-            println!(
-                "Warning: Could not format filename {output_filename} due to chrono format error, falling back to literal filename."
-            );
-        } else {
-            output_filename = format!("{delayed_format}");
-        }
+        let Some(output_filename) = Self::resolve_output_filename(&output_filename) else {
+            return;
+        };
 
         // TODO: we could support more data types
         if output_filename != "-" && !output_filename.ends_with(".png") {
@@ -395,22 +509,6 @@ impl SketchBoard {
                 !APP_CONFIG.read().disable_notifications(),
             );
             return;
-        }
-
-        if let Some(tilde_stripped) =
-            output_filename.strip_prefix(&format!("~{}", std::path::MAIN_SEPARATOR_STR))
-        {
-            if let Some(h) = std::env::home_dir() {
-                let mut p = h;
-                p.push(tilde_stripped);
-                output_filename = p.to_string_lossy().into_owned();
-            } else {
-                log_result(
-                    "~ found but could not determine homedir",
-                    !APP_CONFIG.read().disable_notifications(),
-                );
-                return;
-            }
         }
 
         let data = match image.save_to_bufferv("png", &Vec::new()) {
@@ -453,6 +551,16 @@ impl SketchBoard {
         sender: ComponentSender<Self>,
         followup_actions: Vec<Action>,
     ) {
+        let configured_output_path = Self::configured_output_path();
+        let initial_dir = Self::save_as_initial_dir(
+            Self::save_as_last_dir_file().as_deref(),
+            configured_output_path.as_deref(),
+        );
+        let suggested_filename = configured_output_path
+            .as_deref()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned());
+
         let data = match pixbuf.save_to_bufferv("png", &Vec::new()) {
             Ok(d) => d,
             Err(e) => {
@@ -477,6 +585,17 @@ impl SketchBoard {
             }
             .build();
 
+            if let Some(initial_dir) = initial_dir {
+                let initial_dir = gtk::gio::File::for_path(initial_dir);
+                if let Err(e) = dialog.set_current_folder(Some(&initial_dir)) {
+                    eprintln!("Error setting Save As folder: {e}");
+                }
+            }
+
+            if let Some(filename) = suggested_filename {
+                dialog.set_current_name(&filename);
+            }
+
             dialog.connect_response(move |dialog, response| {
                 let mut exit_app = false;
                 let mut filename: Option<String> = None;
@@ -496,6 +615,7 @@ impl SketchBoard {
                         Ok(_) => {
                             exit_app = APP_CONFIG.read().early_exit_save_as();
                             filename = Some(output_filename.clone());
+                            Self::remember_save_as_dir(Path::new(&output_filename));
                             log_result(
                                 &format!("File saved to '{}'.", &output_filename),
                                 !APP_CONFIG.read().disable_notifications(),
@@ -622,6 +742,8 @@ impl SketchBoard {
         if self.active_tool.borrow().active() {
             self.active_tool.borrow_mut().handle_undo()
         } else if self.renderer.undo() {
+            self.renderer.set_hidden_drawable_index(None);
+            self.pointer_tool.borrow_mut().deselect();
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
@@ -632,6 +754,8 @@ impl SketchBoard {
         if self.active_tool.borrow().active() {
             self.active_tool.borrow_mut().handle_redo()
         } else if self.renderer.redo() {
+            self.renderer.set_hidden_drawable_index(None);
+            self.pointer_tool.borrow_mut().deselect();
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
@@ -640,7 +764,15 @@ impl SketchBoard {
 
     fn handle_reset(&mut self) -> ToolUpdateResult {
         // can't use lazy || here
-        if self.deactivate_active_tool() | self.renderer.reset() {
+        let did_reset = self.deactivate_active_tool() | self.renderer.reset();
+
+        self.renderer.set_hidden_drawable_index(None);
+        self.pointer_tool.borrow_mut().deselect();
+
+        // Reset marker numbering after drawable undo hooks ran.
+        self.tools.get(&Tools::Marker).borrow_mut().handle_reset();
+
+        if did_reset {
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
@@ -670,6 +802,129 @@ impl SketchBoard {
         ToolUpdateResult::Unmodified
     }
 
+    /// Pre-processes `BeginDrag` events when the Pointer tool is active.
+    /// Returns `Some(result)` to short-circuit normal tool dispatch, or `None` to fall through.
+    fn handle_pointer_tool_begin_drag(
+        &mut self,
+        me: &crate::sketch_board::MouseEventMsg,
+        sender: &ComponentSender<Self>,
+    ) -> Option<ToolUpdateResult> {
+        // Check resize handle first (only when something is already selected)
+        let handle_hit = self.pointer_tool.borrow().hit_test_handle(me.pos);
+        if let Some(handle) = handle_hit {
+            let sel_idx = self.pointer_tool.borrow().selected_index();
+            if let Some(idx) = sel_idx
+                && let (Some(drawable), Some(bounds)) = (
+                    self.renderer.get_drawable_clone(idx),
+                    self.renderer.get_drawable_bounds(idx),
+                )
+            {
+                self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
+                self.renderer.set_hidden_drawable_index(Some(idx));
+                self.pointer_tool
+                    .borrow_mut()
+                    .begin_resize(idx, drawable, handle, bounds);
+                return Some(ToolUpdateResult::Redraw);
+            }
+        }
+
+        let is_alt_click = me.modifier.contains(ModifierType::ALT_MASK);
+
+        // If a drawable is already selected and the click is inside its body,
+        // keep using it instead of re-selecting another overlapping drawable.
+        if !is_alt_click {
+            let selected_idx = self.pointer_tool.borrow().selected_index();
+            if let Some(sel_idx) = selected_idx
+                && let (Some(drawable), Some((tl, br))) = (
+                    self.renderer.get_drawable_clone(sel_idx),
+                    self.renderer.get_drawable_bounds(sel_idx),
+                )
+                && me.pos.x >= tl.x
+                && me.pos.x <= br.x
+                && me.pos.y >= tl.y
+                && me.pos.y <= br.y
+            {
+                self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
+                self.renderer.set_hidden_drawable_index(Some(sel_idx));
+                self.pointer_tool
+                    .borrow_mut()
+                    .begin_move(sel_idx, drawable, (tl, br));
+                return Some(ToolUpdateResult::Redraw);
+            }
+        }
+
+        // Check body hit
+        let idx_to_select = if is_alt_click {
+            // Alt+Click: cycle through all overlapping objects
+            let all_hits = self.renderer.hit_test(me.pos);
+            if !all_hits.is_empty() {
+                // Get the next index in the cycle
+                self.pointer_tool
+                    .borrow_mut()
+                    .cycle_to_next_object(me.pos, all_hits)
+            } else {
+                None
+            }
+        } else {
+            // Normal click: select topmost object
+            self.renderer.hit_test(me.pos).first().copied()
+        };
+
+        if let Some(idx) = idx_to_select {
+            let sel_idx = if is_alt_click {
+                // Alt+Click: don't move to end, just use the index as-is
+                idx
+            } else {
+                // Normal click: move to end and use new index
+                self.renderer.move_drawable_to_end(idx).unwrap_or(idx)
+            };
+
+            if let (Some(drawable), Some(bounds)) = (
+                self.renderer.get_drawable_clone(sel_idx),
+                self.renderer.get_drawable_bounds(sel_idx),
+            ) {
+                self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
+                self.renderer.set_hidden_drawable_index(Some(sel_idx));
+                self.pointer_tool
+                    .borrow_mut()
+                    .begin_move(sel_idx, drawable, bounds);
+                return Some(ToolUpdateResult::Redraw);
+            }
+        }
+
+        // Clicked on empty space: deselect
+        self.renderer.set_hidden_drawable_index(None);
+        self.pointer_tool.borrow_mut().deselect();
+        Some(ToolUpdateResult::Redraw)
+    }
+
+    /// Called when the pointer tool receives a double-click (n_pressed == 2).
+    /// If the hit drawable is a Text, removes it from the canvas and re-opens it in the text tool.
+    fn handle_pointer_tool_double_click(
+        &mut self,
+        pos: Vec2D,
+        sender: &ComponentSender<Self>,
+    ) -> Option<ToolUpdateResult> {
+        let idx = self.renderer.hit_test(pos).first().copied()?;
+        let drawable = self.renderer.get_drawable_clone(idx)?;
+        let (text_pos, content, style) = drawable.edit_info()?;
+
+        // Remove the committed drawable and clear selection
+        self.pointer_tool.borrow_mut().deselect();
+        self.renderer.set_hidden_drawable_index(None);
+        self.renderer.remove_drawable(idx);
+
+        // Pre-populate the text tool and switch to it
+        self.text_tool
+            .borrow_mut()
+            .load_for_editing(text_pos, &content, style);
+        self.return_to_pointer_after_text_commit = true;
+        Some(self.handle_toolbar_event(
+            crate::ui::toolbars::ToolbarEvent::ToolSelected(Tools::Text),
+            sender.clone(),
+        ))
+    }
+
     fn handle_toolbar_event(
         &mut self,
         toolbar_event: ToolbarEvent,
@@ -677,12 +932,20 @@ impl SketchBoard {
     ) -> ToolUpdateResult {
         match toolbar_event {
             ToolbarEvent::ToolSelected(tool) => {
+                self.temporary_pointer_previous_tool = None;
+                if tool != Tools::Text {
+                    self.return_to_pointer_after_text_commit = false;
+                }
+
                 // deactivate old tool and save drawable, if any
                 let old_tool = self.active_tool.clone();
                 let mut deactivate_result =
                     old_tool.borrow_mut().handle_event(ToolEvent::Deactivated);
 
                 old_tool.borrow_mut().set_im_context(None);
+
+                // If we were in the pointer tool, ensure the hidden drawable is restored
+                self.renderer.set_hidden_drawable_index(None);
 
                 if let ToolUpdateResult::Commit(d) = deactivate_result {
                     self.renderer.commit(d);
@@ -727,15 +990,48 @@ impl SketchBoard {
             }
             ToolbarEvent::ColorSelected(color) => {
                 self.style.color = color;
-                self.active_tool
+                let mut result = self
+                    .active_tool
                     .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+
+                if self.active_tool_type() == Tools::Pointer {
+                    let selected_index = self.pointer_tool.borrow().selected_index();
+                    if let Some(index) = selected_index
+                        && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
+                    {
+                        drawable.set_color(color);
+                        self.renderer.replace_drawable(index, drawable);
+                        result = ToolUpdateResult::Redraw;
+                    }
+                }
+
+                result
             }
             ToolbarEvent::SizeSelected(size) => {
                 self.style.size = size;
-                self.active_tool
+                let mut result = self
+                    .active_tool
                     .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+
+                if self.active_tool_type() == Tools::Pointer {
+                    let selected_index = self.pointer_tool.borrow().selected_index();
+                    if let Some(index) = selected_index
+                        && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
+                    {
+                        drawable.set_size(size);
+                        self.renderer.replace_drawable(index, drawable);
+                        if let Some(new_bounds) = self.renderer.get_drawable_bounds(index) {
+                            self.pointer_tool
+                                .borrow_mut()
+                                .set_selection(index, new_bounds);
+                        }
+                        result = ToolUpdateResult::Redraw;
+                    }
+                }
+
+                result
             }
             ToolbarEvent::SaveFile => self.handle_action(&[Action::SaveToFile]),
             ToolbarEvent::CopyClipboard => self.handle_action(&[Action::SaveToClipboard]),
@@ -744,9 +1040,26 @@ impl SketchBoard {
             ToolbarEvent::Reset => self.handle_reset(),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
-                self.active_tool
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::FillToggled(self.style.fill));
+                let mut result = self
+                    .active_tool
                     .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+
+                if self.active_tool_type() == Tools::Pointer {
+                    let selected_index = self.pointer_tool.borrow().selected_index();
+                    if let Some(index) = selected_index
+                        && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
+                    {
+                        drawable.set_fill(!drawable.get_fill());
+                        self.renderer.replace_drawable(index, drawable);
+                        result = ToolUpdateResult::Redraw;
+                    }
+                }
+
+                result
             }
             ToolbarEvent::AnnotationSizeChanged(value) => {
                 self.style.annotation_size_factor = value;
@@ -787,6 +1100,14 @@ impl SketchBoard {
                     sender.input(SketchBoardInput::new_text_event(TextEventMsg::Commit(
                         txt.to_string(),
                     )));
+                } else if txt.chars().next().is_some_and(|char| char.eq(&'-')) {
+                    sender.output(SketchBoardOutput::SizeCycleShortcut).ok();
+                } else if txt
+                    .chars()
+                    .next()
+                    .is_some_and(|char| char.eq_ignore_ascii_case(&'f'))
+                {
+                    sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::ToggleFill));
                 } else if let Some(tool) = txt
                     .chars()
                     .next()
@@ -806,13 +1127,9 @@ impl SketchBoard {
                     } else {
                         hotkey_digit - 1
                     };
-                    if APP_CONFIG.read().color_palette().palette().len()
-                        >= (index_digit + 1) as usize
-                    {
-                        sender
-                            .output_sender()
-                            .emit(SketchBoardOutput::ColorSwitchShortcut(index_digit as u64));
-                    }
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::ColorSwitchShortcut(index_digit as u64));
                 }
             }
             TextEventMsg::Preedit {
@@ -973,6 +1290,8 @@ impl Component for SketchBoard {
     }
 
     fn update(&mut self, msg: SketchBoardInput, sender: ComponentSender<Self>, _root: &Self::Root) {
+        let sender_for_post_commit = sender.clone();
+
         // handle resize ourselves, pass everything else to tool
         let result = match msg {
             SketchBoardInput::InputEvent(mut ie) => {
@@ -988,7 +1307,9 @@ impl Component for SketchBoard {
                         ToolUpdateResult::StopPropagation
                         | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
                         _ => {
-                            if ke.is_one_of(Key::z, KeyMappingId::UsZ)
+                            if ke.key == Key::y && ke.modifier == ModifierType::CONTROL_MASK {
+                                self.handle_redo()
+                            } else if ke.is_one_of(Key::z, KeyMappingId::UsZ)
                                 && ke.modifier == ModifierType::CONTROL_MASK
                             {
                                 self.handle_undo()
@@ -1064,17 +1385,34 @@ impl Component for SketchBoard {
                                 self.renderer.store_last_offset();
                                 self.renderer.request_render(&[]);
                                 ToolUpdateResult::Unmodified
-                            } else if ke.modifier.is_empty() && ke.key == Key::Delete {
-                                self.handle_reset()
-                            } else if ke.modifier.is_empty()
-                                && (ke.key == Key::Escape
-                                    || ke.key == Key::Return
-                                    || ke.key == Key::KP_Enter)
+                            } else if ke.key == Key::Delete
+                                && !ke
+                                    .modifier
+                                    .intersects(ModifierType::CONTROL_MASK | ModifierType::ALT_MASK)
+                            {
+                                if ke.modifier.contains(ModifierType::SHIFT_MASK) {
+                                    self.handle_reset()
+                                } else {
+                                    // If the pointer tool has a selection, delete just that item
+                                    let pointer_selection =
+                                        self.pointer_tool.borrow().selected_index();
+                                    if let Some(idx) = pointer_selection {
+                                        self.pointer_tool.borrow_mut().deselect();
+                                        self.renderer.set_hidden_drawable_index(None);
+                                        self.renderer.remove_drawable(idx);
+                                        ToolUpdateResult::Redraw
+                                    } else {
+                                        ToolUpdateResult::Unmodified
+                                    }
+                                }
+                            } else if (matches!(ke.key, Key::Escape | Key::Return | Key::KP_Enter)
+                                && ke.modifier.is_empty())
+                                || (ke.key == Key::q && ke.modifier == ModifierType::CONTROL_MASK)
                             {
                                 // First, let the tool handle the event. If the tool does nothing, we can do our thing (otherwise require a second keyboard press)
                                 // Relying on ToolUpdateResult::Unmodified is probably not a good idea, but it's the only way at the moment. See discussion in #144
                                 if let ToolUpdateResult::Unmodified = active_tool_result {
-                                    let actions = if ke.key == Key::Escape {
+                                    let actions = if matches!(ke.key, Key::Escape | Key::q) {
                                         APP_CONFIG.read().actions_on_escape()
                                     } else {
                                         APP_CONFIG.read().actions_on_enter()
@@ -1089,21 +1427,87 @@ impl Component for SketchBoard {
                     }
                 } else {
                     ie.handle_event_mouse_input(&self.renderer);
-                    let active_tool_result = self
-                        .active_tool
-                        .borrow_mut()
-                        .handle_event(ToolEvent::Input(ie.clone()));
-
-                    // eprintln!("active_tool_result={:?}", active_tool_result);
-
-                    match active_tool_result {
-                        ToolUpdateResult::StopPropagation
-                        | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
-                        _ => {
-                            if let Some(result) = ie.handle_mouse_event(&self.renderer) {
-                                result
+                    if let InputEvent::Mouse(ref me) = ie {
+                        if self.active_tool_type() == Tools::Pointer {
+                            if me.type_ == MouseEventType::Click && me.n_pressed == 2 {
+                                self.handle_pointer_tool_double_click(me.pos, &sender)
+                                    .unwrap_or_else(|| ToolUpdateResult::Unmodified)
+                            } else if me.type_ == MouseEventType::Click
+                                && me.n_pressed == 1
+                                && let Some(previous_tool) = self.temporary_pointer_previous_tool
+                                && previous_tool != Tools::Pointer
+                                && self.renderer.hit_test(me.pos).is_empty()
+                            {
+                                self.temporary_pointer_previous_tool = None;
+                                self.handle_toolbar_event(
+                                    ToolbarEvent::ToolSelected(previous_tool),
+                                    sender.clone(),
+                                );
+                                sender
+                                    .output_sender()
+                                    .emit(SketchBoardOutput::ToolSwitchShortcut(previous_tool));
+                                self.active_tool
+                                    .borrow_mut()
+                                    .handle_event(ToolEvent::Input(ie.clone()))
                             } else {
-                                active_tool_result
+                                let result = if me.type_ == MouseEventType::BeginDrag {
+                                    self.handle_pointer_tool_begin_drag(me, &sender)
+                                        .unwrap_or(ToolUpdateResult::Unmodified)
+                                } else if !matches!(
+                                    me.type_,
+                                    MouseEventType::PointerPos | MouseEventType::UpdateDrag
+                                ) {
+                                    self.renderer.set_hidden_drawable_index(None);
+                                    ToolUpdateResult::Redraw
+                                } else {
+                                    ToolUpdateResult::Unmodified
+                                };
+                                let tool_result = self
+                                    .active_tool
+                                    .borrow_mut()
+                                    .handle_event(ToolEvent::Input(ie.clone()));
+                                match tool_result {
+                                    ToolUpdateResult::Unmodified => result,
+                                    _ => tool_result,
+                                }
+                            }
+                        } else if me.type_ == MouseEventType::Click && me.n_pressed == 1 {
+                            if !self.renderer.hit_test(me.pos).is_empty() {
+                                let previous_tool = self.active_tool_type();
+                                self.handle_toolbar_event(
+                                    ToolbarEvent::ToolSelected(Tools::Pointer),
+                                    sender.clone(),
+                                );
+                                sender
+                                    .output_sender()
+                                    .emit(SketchBoardOutput::ToolSwitchShortcut(Tools::Pointer));
+                                self.temporary_pointer_previous_tool = Some(previous_tool);
+                                ToolUpdateResult::Redraw
+                            } else {
+                                self.active_tool
+                                    .borrow_mut()
+                                    .handle_event(ToolEvent::Input(ie.clone()))
+                            }
+                        } else {
+                            self.active_tool
+                                .borrow_mut()
+                                .handle_event(ToolEvent::Input(ie.clone()))
+                        }
+                    } else {
+                        let active_tool_result = self
+                            .active_tool
+                            .borrow_mut()
+                            .handle_event(ToolEvent::Input(ie.clone()));
+
+                        match active_tool_result {
+                            ToolUpdateResult::StopPropagation
+                            | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
+                            _ => {
+                                if let Some(result) = ie.handle_mouse_event(&self.renderer) {
+                                    result
+                                } else {
+                                    active_tool_result
+                                }
                             }
                         }
                     }
@@ -1149,6 +1553,27 @@ impl Component for SketchBoard {
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
                 }
+
+                if self.return_to_pointer_after_text_commit
+                    && self.active_tool_type() == Tools::Text
+                {
+                    self.return_to_pointer_after_text_commit = false;
+                    let _ = self.handle_toolbar_event(
+                        ToolbarEvent::ToolSelected(Tools::Pointer),
+                        sender_for_post_commit,
+                    );
+                }
+
+                self.refresh_screen();
+            }
+            ToolUpdateResult::ReplaceDrawable(index, drawable) => {
+                self.renderer.replace_drawable(index, drawable);
+                // Update the selection overlay bounds to reflect the new position/size.
+                if let Some(new_bounds) = self.renderer.get_drawable_bounds(index) {
+                    self.pointer_tool
+                        .borrow_mut()
+                        .set_selection(index, new_bounds);
+                }
                 self.refresh_screen();
             }
             ToolUpdateResult::Unmodified | ToolUpdateResult::StopPropagation => (),
@@ -1168,10 +1593,18 @@ impl Component for SketchBoard {
 
         let im_context = gtk::IMMulticontext::new();
 
+        let pointer_tool = tools.get_pointer_tool();
+
+        let text_tool = tools.get_text_tool();
+
         let mut model = Self {
             renderer: FemtoVGArea::default(),
             active_tool: tools.get(&config.initial_tool()),
             style: Style::default(),
+            pointer_tool,
+            text_tool,
+            return_to_pointer_after_text_commit: false,
+            temporary_pointer_previous_tool: None,
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),
@@ -1276,5 +1709,112 @@ impl KeyEventMsg {
         // them to get correct evdev keycode.
         let keymap = KeyMap::from(code);
         self.key == key || self.code as u16 - 8 == keymap.evdev
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SketchBoard;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock before Unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("satty-{name}-{nanos}"));
+            fs::create_dir_all(&path).expect("create temp dir");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn save_as_initial_dir_uses_remembered_existing_directory() {
+        let temp = TempDir::new("remembered-dir");
+        let remembered_dir = temp.path().join("remembered");
+        let fallback_dir = temp.path().join("fallback");
+        fs::create_dir_all(&remembered_dir).expect("create remembered dir");
+        fs::create_dir_all(&fallback_dir).expect("create fallback dir");
+
+        let state_file = temp.path().join("state").join("save_as_last_dir");
+        fs::create_dir_all(state_file.parent().expect("state parent")).expect("create state dir");
+        fs::write(&state_file, remembered_dir.to_string_lossy().as_bytes())
+            .expect("write state file");
+
+        let initial_dir = SketchBoard::save_as_initial_dir(
+            Some(&state_file),
+            Some(&fallback_dir.join("screenshot.png")),
+        );
+
+        assert_eq!(initial_dir, Some(remembered_dir));
+    }
+
+    #[test]
+    fn save_as_initial_dir_falls_back_when_remembered_directory_is_invalid() {
+        let temp = TempDir::new("invalid-remembered-dir");
+        let fallback_dir = temp.path().join("fallback");
+        fs::create_dir_all(&fallback_dir).expect("create fallback dir");
+
+        let state_file = temp.path().join("save_as_last_dir");
+        fs::write(
+            &state_file,
+            temp.path().join("missing").to_string_lossy().as_bytes(),
+        )
+        .expect("write invalid state file");
+
+        let initial_dir = SketchBoard::save_as_initial_dir(
+            Some(&state_file),
+            Some(&fallback_dir.join("screenshot.png")),
+        );
+
+        assert_eq!(initial_dir, Some(fallback_dir));
+    }
+
+    #[test]
+    fn save_as_initial_dir_handles_missing_state_and_output_path() {
+        let initial_dir = SketchBoard::save_as_initial_dir(None, None);
+
+        assert_eq!(initial_dir, None);
+    }
+
+    #[test]
+    fn remember_save_as_dir_creates_state_file() {
+        let temp = TempDir::new("remember-save-as-dir");
+        let saved_dir = temp.path().join("saved");
+        fs::create_dir_all(&saved_dir).expect("create saved dir");
+        let state_dir = temp.path().join("state");
+        fs::create_dir_all(&state_dir).expect("create state dir");
+        let state_file = state_dir.join("save_as_last_dir");
+
+        SketchBoard::write_save_as_last_dir(&state_file, &saved_dir.join("image.png"));
+
+        let remembered_dir = fs::read_to_string(state_file).expect("read state file");
+        assert_eq!(remembered_dir, saved_dir.to_string_lossy());
+    }
+
+    #[test]
+    fn write_save_as_last_dir_ignores_unwritable_state_path() {
+        let temp = TempDir::new("unwritable-state-path");
+        let saved_dir = temp.path().join("saved");
+        fs::create_dir_all(&saved_dir).expect("create saved dir");
+
+        SketchBoard::write_save_as_last_dir(temp.path(), &saved_dir.join("image.png"));
     }
 }

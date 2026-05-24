@@ -1,5 +1,6 @@
 use anyhow::Result;
 use femtovg::{Color, FontId, Paint, Path};
+use relm4::gtk::glib::GString;
 use relm4::gtk::prelude::IMContextExt;
 use relm4::gtk::{
     TextBuffer,
@@ -141,20 +142,101 @@ impl Text {
             }
         }
     }
+
+    fn get_text(&self) -> GString {
+        self.text_buffer.text(
+            &self.text_buffer.start_iter(),
+            &self.text_buffer.end_iter(),
+            false,
+        )
+    }
 }
 
 impl Drawable for Text {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let rect = self.rect.borrow();
+        if rect.width() == 0 && rect.height() == 0 {
+            // Not yet drawn; use pos as a small point region
+            return Some((self.pos, self.pos + Vec2D::new(10.0, 10.0)));
+        }
+        Some((
+            Vec2D::new(rect.x() as f32, rect.y() as f32),
+            Vec2D::new(
+                (rect.x() + rect.width()) as f32,
+                (rect.y() + rect.height()) as f32,
+            ),
+        ))
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.pos += delta;
+        let old = *self.rect.borrow();
+        *self.rect.borrow_mut() = Rectangle::new(
+            old.x() + delta.x as i32,
+            old.y() + delta.y as i32,
+            old.width(),
+            old.height(),
+        );
+    }
+
+    fn edit_info(&self) -> Option<(Vec2D, String, crate::style::Style)> {
+        let content = self.text_buffer.text(
+            &self.text_buffer.start_iter(),
+            &self.text_buffer.end_iter(),
+            false,
+        );
+        Some((self.pos, content.to_string(), self.style))
+    }
+
+    fn set_color(&mut self, color: crate::style::Color) {
+        self.style.color = color;
+    }
+
+    fn get_color(&self) -> Option<crate::style::Color> {
+        Some(self.style.color)
+    }
+
+    fn get_size(&self) -> Option<crate::style::Size> {
+        Some(self.style.size)
+    }
+
+    fn set_size(&mut self, size: crate::style::Size) {
+        let old_font_size = self
+            .style
+            .size
+            .to_text_size(self.style.annotation_size_factor) as f32;
+        self.style.size = size;
+
+        let new_font_size = self
+            .style
+            .size
+            .to_text_size(self.style.annotation_size_factor) as f32;
+
+        if old_font_size > 0.0 {
+            let scale = new_font_size / old_font_size;
+            let old = *self.rect.borrow();
+
+            if old.width() != 0 || old.height() != 0 {
+                let dx = old.x() as f32 - self.pos.x;
+                let dy = old.y() as f32 - self.pos.y;
+
+                *self.rect.borrow_mut() = Rectangle::new(
+                    (self.pos.x + dx * scale).round() as i32,
+                    (self.pos.y + dy * scale).round() as i32,
+                    ((old.width() as f32) * scale).round().max(1.0) as i32,
+                    ((old.height() as f32) * scale).round().max(1.0) as i32,
+                );
+            }
+        }
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        let gtext = self.text_buffer.text(
-            &self.text_buffer.start_iter(),
-            &self.text_buffer.end_iter(),
-            false,
-        );
+        let gtext = self.get_text();
         let base_text = gtext.as_str();
         let display = self.display_text(base_text);
         let text = display.text.as_ref();
@@ -705,6 +787,7 @@ pub struct TextTool {
     sender: Option<Sender<SketchBoardInput>>,
     drag_start_pos: Vec2D,
     dragged: Rc<RefCell<bool>>,
+    editing_existing: bool,
 }
 
 impl Tool for TextTool {
@@ -800,16 +883,25 @@ impl Tool for TextTool {
                         tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
                     }
                     _ => {
-                        t.preedit = None;
-                        t.editing = false;
-                        t.im_context = None;
-                        t.text_buffer
-                            .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
-                        *t.draw_rect.borrow_mut() = false;
-                        let result = t.clone_box();
-                        self.text = None;
-                        self.input_enabled = false;
-                        tool_update_result = ToolUpdateResult::Commit(result);
+                        let content = t.get_text();
+                        if content.is_empty() {
+                            self.text = None;
+                            self.input_enabled = false;
+                            tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
+                        } else {
+                            t.preedit = None;
+                            t.editing = false;
+                            t.im_context = None;
+                            t.text_buffer.select_range(
+                                &t.text_buffer.start_iter(),
+                                &t.text_buffer.start_iter(),
+                            );
+                            *t.draw_rect.borrow_mut() = false;
+                            let result = t.clone_box();
+                            self.text = None;
+                            self.input_enabled = false;
+                            tool_update_result = ToolUpdateResult::Commit(result);
+                        }
                     }
                 },
                 Key::Escape => {
@@ -1131,26 +1223,40 @@ impl Tool for TextTool {
                             }
                         }
 
+                        let editing_existing = self.editing_existing;
+
                         // create commit message if necessary
                         let return_value = match &mut self.text {
                             Some(l) => {
-                                l.preedit = None;
-                                l.editing = false;
-                                l.im_context = None;
-                                l.text_buffer.select_range(
-                                    &l.text_buffer.start_iter(),
-                                    &l.text_buffer.start_iter(),
-                                );
-                                *l.draw_rect.borrow_mut() = false;
-                                ToolUpdateResult::Commit(l.clone_box())
+                                let content = l.get_text();
+                                if content.is_empty() {
+                                    ToolUpdateResult::Unmodified
+                                } else {
+                                    l.preedit = None;
+                                    l.editing = false;
+                                    l.im_context = None;
+                                    l.text_buffer.select_range(
+                                        &l.text_buffer.start_iter(),
+                                        &l.text_buffer.start_iter(),
+                                    );
+                                    *l.draw_rect.borrow_mut() = false;
+                                    ToolUpdateResult::Commit(l.clone_box())
+                                }
                             }
                             None => ToolUpdateResult::Redraw,
                         };
 
-                        // create a new Text
-                        self.text = Some(Text::new(event.pos, self.style, self.im_context.clone()));
-
-                        self.set_input_enabled(true);
+                        if editing_existing {
+                            // Pointer-initiated edit: finish editing and let SketchBoard switch tool.
+                            self.text = None;
+                            self.set_input_enabled(false);
+                            self.editing_existing = false;
+                        } else {
+                            // Native text-tool behavior: commit current text and start a new one.
+                            self.text =
+                                Some(Text::new(event.pos, self.style, self.im_context.clone()));
+                            self.set_input_enabled(true);
+                        }
 
                         return_value
                     }
@@ -1273,17 +1379,25 @@ impl Tool for TextTool {
 
     fn handle_deactivated(&mut self) -> ToolUpdateResult {
         self.input_enabled = false;
+        self.editing_existing = false;
         if let Some(t) = &mut self.text {
-            t.preedit = None;
-            t.editing = false;
-            t.im_context = None;
-            t.text_buffer
-                .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
-            *t.draw_rect.borrow_mut() = false;
-            let result = t.clone_box();
-            self.text = None;
-            self.input_enabled = false;
-            ToolUpdateResult::Commit(result)
+            let content = t.get_text();
+            if content.is_empty() {
+                // Don't create empty text objects
+                self.text = None;
+                ToolUpdateResult::Unmodified
+            } else {
+                t.preedit = None;
+                t.editing = false;
+                t.im_context = None;
+                t.text_buffer
+                    .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
+                *t.draw_rect.borrow_mut() = false;
+                let result = t.clone_box();
+                self.text = None;
+                self.input_enabled = false;
+                ToolUpdateResult::Commit(result)
+            }
         } else {
             ToolUpdateResult::Unmodified
         }
@@ -1431,11 +1545,7 @@ impl TextTool {
                         if has_selection {
                             cursor_itr = end_iter.unwrap();
                         } else {
-                            let content = &text.text_buffer.text(
-                                &text.text_buffer.start_iter(),
-                                &text.text_buffer.end_iter(),
-                                false,
-                            );
+                            let content = &text.get_text();
                             let current_offset = cursor_itr.offset();
 
                             let mut next_line = 0;
@@ -1488,11 +1598,7 @@ impl TextTool {
                         if has_selection {
                             cursor_itr = start_iter.unwrap();
                         } else {
-                            let content = &text.text_buffer.text(
-                                &text.text_buffer.start_iter(),
-                                &text.text_buffer.end_iter(),
-                                false,
-                            );
+                            let content = &text.get_text();
                             let current_offset = cursor_itr.offset();
 
                             let mut last_line = 0;
@@ -1591,11 +1697,7 @@ impl TextTool {
                         }
                     }
                     ActionScope::ForwardLineAndWord => {
-                        let content = &text.text_buffer.text(
-                            &text.text_buffer.start_iter(),
-                            &text.text_buffer.end_iter(),
-                            false,
-                        );
+                        let content = &text.get_text();
                         let current_offset = end_cursor_itr.offset();
 
                         let mut next_line = 0;
@@ -1638,11 +1740,7 @@ impl TextTool {
                         end_cursor_itr.set_offset(move_offset);
                     }
                     ActionScope::BackwardLineAndWord => {
-                        let content = &text.text_buffer.text(
-                            &text.text_buffer.start_iter(),
-                            &text.text_buffer.end_iter(),
-                            false,
-                        );
+                        let content = &text.get_text();
                         let current_offset = end_cursor_itr.offset();
 
                         let mut last_line = 0;
@@ -1721,5 +1819,18 @@ impl TextTool {
                 }
             }
         }
+    }
+
+    /// Pre-populate the tool with an existing text drawable so the user can edit it.
+    /// Call this before switching to the Text tool.
+    pub fn load_for_editing(&mut self, pos: Vec2D, content: &str, style: Style) {
+        let t = Text::new(pos, style, self.im_context.clone());
+        t.text_buffer.insert_at_cursor(content);
+        // Move cursor to end
+        t.text_buffer.place_cursor(&t.text_buffer.end_iter());
+        self.text = Some(t);
+        self.style = style;
+        self.set_input_enabled(true);
+        self.editing_existing = true;
     }
 }

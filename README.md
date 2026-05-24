@@ -1,4 +1,4 @@
-# <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation.
+# <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation
 
 Satty is a screenshot annotation tool inspired by [Swappy](https://github.com/jtheoof/swappy) and [Flameshot](https://flameshot.org/).
 
@@ -20,6 +20,7 @@ Thanks to our package maintainers, Satty is available for many distributions on 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/satty.svg)](https://repology.org/project/satty/versions)
 
 ### Specifics
+
 | Distribution | Command | Note |
 | --- | --- | --- |
 | Gentoo | `emerge -av satty` | You need guru overlay (see [wiki](https://github.com/gabm/Satty/wiki/Gentoo-Guru)). Pending [PR](https://github.com/gentoo/gentoo/pull/33908) |
@@ -42,24 +43,36 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 ### Shortcuts
 
 - <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard (may be masked by active tool)
-- <kbd>Esc</kbd>: as configured (see below), default: exit (may be masked by active tool)
-- <kbd>Delete</kbd> reset (clear) <sup>experimental</sup> <sup>0.20.1</sup>
+- <kbd>Esc</kbd> or <kbd>Ctrl-Q</kbd> <sup>NEXTRELEASE</sup>: as configured (see below), default: exit (may be masked by active tool)
+- <kbd>Shift+Delete</kbd> reset (clear) <sup>experimental</sup> <sup>NEXTRELEASE</sup>
 - <kbd>Ctrl+C</kbd>: Save to clipboard (may be masked by active tool)
 - <kbd>Ctrl+Shift+D</kbd> or <kbd>Ctrl+Shift+I</kbd>: Open GTK inspector if not already opened
 - <kbd>Ctrl+S</kbd>: Save to specified output file
-- <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>
+- <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>. The dialog uses `output-filename` as initial filename/path when available and remembers the last selected folder. <sup>NEXTRELEASE</sup>
 - <kbd>Ctrl+Alt+C</kbd>: Copy last saved filepath to clipboard <sup>0.20.1</sup>
 - <kbd>Ctrl+T</kbd>: Toggle toolbars
 - <kbd>Ctrl+Y</kbd>: Redo
 - <kbd>Ctrl+Z</kbd>: Undo
 - <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>0.20.1</sup>
 
+#### Size Selection Shortcut
+
+<kbd>-</kbd>: Cycle between large, medium and small size <sup>NEXTRELEASE</sup>
+
 #### Color Selection Shortcuts <sup>0.20.1</sup>
 
 <kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd>, …, <kbd>9</kbd>, <kbd>0</kbd> — select nth color from the color palette
 
+If out of range select custom color <sup>NEXTRELEASE</sup>
+
+#### Toggle fill <sup>NEXTRELEASE</sup>
+
+<kbd>f</kbd>
+
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
+
 Default single-key shortcuts:
+
 - <kbd>p</kbd>: Pointer tool
 - <kbd>c</kbd>: Crop tool
 - <kbd>b</kbd>: Brush tool
@@ -75,9 +88,15 @@ Default single-key shortcuts:
 
 ### Tool Modifiers and Keys
 
+- Pointer: <sup>NEXTRELEASE</sup>
+  - <kbd>Click</kbd> on annotation to select and raise it to top
+  - <kbd>Alt+Click</kbd> on overlapping annotations cycles selection through them without raising them
+  - <kbd>Delete</kbd> to delete selected annotation
+  - <kbd>Double-Click</kbd> to edit selected text annotation
+  - <kbd>Click</kbd> on an annotation temporarily switches from active tool to pointer tool - click in empty space switches back to original tool
 - Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps
 - Ellipse: Hold <kbd>Alt</kbd> to center the ellipse around origin, hold <kbd>Shift</kbd> for a circle
-- Highlight: Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
+- Highlight: Hold <kbd>Alt</kbd> to center the block highlight around origin <sup>NEXTRELEASE</sup>, hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
 - Line: Hold <kbd>Shift</kbd> to make line snap to 15° steps
 - Rectangle: Hold <kbd>Alt</kbd> to center the rectangle around origin, hold <kbd>Shift</kbd> for a square
 - Pixelate: Hold <kbd>Alt</kbd> to use pixelation that takes data from outside the selection as a source. <sup>NEXTRELEASE</sup>
@@ -95,9 +114,9 @@ Default single-key shortcuts:
   - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
   - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
 - Crop:
-   - Press <kbd>Esc</kbd> or right mouse button while editing to reset crop altogether <sup>NEXTRELEASE</sup>
-   - Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>NEXTRELEASE</sup>
-   - Left click crop area when tool is active but not editing to resume editing<sup>NEXTRELEASE</sup>
+  - Press <kbd>Esc</kbd> or right mouse button while editing to reset crop altogether <sup>NEXTRELEASE</sup>
+  - Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>NEXTRELEASE</sup>
+  - Left click crop area when tool is active but not editing to resume editing<sup>NEXTRELEASE</sup>
 
 ### Configuration File
 
@@ -130,6 +149,7 @@ copy-command = "wl-copy"
 annotation-size-factor = 2
 # Filename to use for saving action. Omit to disable saving to file. Might contain format specifiers: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
 # starting with 0.20.0, can contain leading tilde (~) for home directory
+# starting with NEXTRELEASE, save as uses this as initial filename/path when available
 output-filename = "/tmp/test-%Y-%m-%d_%H:%M:%S.png"
 # After copying the screenshot, save it to a file as well
 save-after-copy = false
@@ -171,7 +191,7 @@ zoom-factor = 1.1
 text-move-length = 50.0 
 # experimental feature (0.20.1): Scale factor on the input image when it was taken (e.g. DPI scale on the monitor it was recorded from).
 # This may be more useful to set via the command line.
-# Note, this is ignored with explicit resize.
+# Note, before NEXTRELEASE this is ignored with explicit resize.
 input-scale = 2.0
 # experimental feature (NEXTRELEASE): set window title
 title = "Satty"
@@ -312,7 +332,7 @@ Options:
       --text-move-length <TEXT_MOVE_LENGTH>
           Experimental feature (0.20.1): The length to move the text when using the arrow keys. defaults to 50.0
       --input-scale <INPUT_SCALE>
-          Experimental feature (0.20.1): Scale the default window size to fit different displays. Note that this is ignored with explicit resize
+          Experimental feature (0.20.1): Scale the default window size to fit different displays. Note that before NEXTRELEASE this is ignored with explicit resize
       --title <TITLE>
           Experimental feature (NEXTRELEASE): Set window title
       --app-id <APP_ID>
@@ -375,6 +395,7 @@ grim -g "0,0 3840x2160" -t ppm - | satty --filename - --output-filename - | conv
 
 Add this to your ~/.config/sway/config.
 It needs `grim` and `slurp`.
+
 ```sh
 # screenshots
 # inspiration: https://www.reddit.com/r/swaywm/comments/ghnlea/comment/fqnzxkx/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
@@ -422,6 +443,7 @@ flatpak install satty-<version>.flatpak
 
 Satty is based on GTK-4 and Adwaita.
 Dependencies, depending of each distributions are:
+
 - glib2
 - gtk4 (libgtk-4-x)
 - gdk-pixbuf2

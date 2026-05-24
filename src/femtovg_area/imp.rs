@@ -28,7 +28,7 @@ use crate::{
     tools::{CropTool, Drawable, Tool},
 };
 
-use super::set_font_stack;
+use super::{font_stack, set_font_stack};
 
 const TRANSPARENCY_SQUARE_SIZE: usize = 64;
 
@@ -58,6 +58,7 @@ pub struct FemtoVgAreaMut {
     drag_offset: Vec2D,
     is_drag: bool,
     is_reset: bool,
+    hidden_drawable_index: Option<usize>,
 }
 
 #[glib::object_subclass]
@@ -162,6 +163,7 @@ impl FemtoVGArea {
         active_tool: Rc<RefCell<dyn Tool>>,
         background_image: Pixbuf,
     ) {
+        let initial_scale = APP_CONFIG.read().input_scale().unwrap_or(0.0);
         self.inner().replace(FemtoVgAreaMut {
             background_image,
             background_image_id: None,
@@ -172,13 +174,14 @@ impl FemtoVGArea {
             offset: Vec2D::zero(),
             drawables: Vec::new(),
             redo_stack: Vec::new(),
-            zoom_scale: 0.0,
+            zoom_scale: initial_scale,
             pointer_offset: Vec2D::zero(),
             last_offset: Vec2D::zero(),
             drag_offset: Vec2D::zero(),
-            last_scale: 0.0,
+            last_scale: initial_scale,
             is_drag: false,
             is_reset: false,
+            hidden_drawable_index: None,
         });
         self.sender.borrow_mut().replace(sender);
     }
@@ -190,61 +193,71 @@ impl FemtoVGArea {
             self.canvas.borrow_mut().replace(c);
         }
 
-        if self.font.borrow().is_some() {
-            return;
+        if self.font.borrow().is_none()
+            && let Some(first) = font_stack().first()
+        {
+            self.font.borrow_mut().replace(*first);
         }
+    }
 
-        let mut canvas_ref = self.canvas.borrow_mut();
-        let canvas = canvas_ref.as_mut().unwrap();
-
+    fn build_text_context(&self) -> Result<(femtovg::TextContext, Vec<FontId>)> {
+        let text_context = femtovg::TextContext::default();
         let mut loaded_fonts = Vec::new();
-        let mut loaded_paths = HashSet::<PathBuf>::new();
+        let mut loaded_paths = HashSet::<(PathBuf, u32)>::new();
 
         let app_config = APP_CONFIG.read();
         let fontconfig = Fontconfig::new();
 
-        let configured_font = app_config.font().family().and_then(|family| {
-            fontconfig
+        let mut load_font = |family: &str, style: Option<&str>| -> Result<FontId> {
+            let font = fontconfig
                 .as_ref()
-                .and_then(|fc| fc.find(family, app_config.font().style()))
-        });
+                .and_then(|fc| fc.find(family, style))
+                .ok_or_else(|| anyhow::anyhow!("Font family '{}' not found", family))?;
 
-        if let Some(font) = configured_font.as_ref() {
-            match canvas.add_font(font.path.clone()) {
-                Ok(id) => {
-                    loaded_paths.insert(font.path.clone());
-                    self.font.borrow_mut().replace(id);
-                    loaded_fonts.push(id);
-                }
-                Err(e) => {
-                    println!("Error while loading font. Using default font: {e}");
-                }
+            let face_index = font.index.unwrap_or(0).max(0) as u32;
+
+            if !loaded_paths.insert((font.path.clone(), face_index)) {
+                return Err(anyhow::anyhow!("Font '{}' already loaded", family));
+            }
+            let data = std::fs::read(&font.path)
+                .map_err(|e| anyhow::anyhow!("Failed to read font file: {}", e))?;
+
+            text_context
+                .add_shared_font_with_index(data, face_index)
+                .map_err(|e| anyhow::anyhow!("Failed to load font: {}", e))
+        };
+
+        match load_font(
+            app_config.font().family().unwrap_or(""),
+            app_config.font().style(),
+        ) {
+            Ok(id) => {
+                loaded_fonts.push(id);
+            }
+            Err(e) => {
+                eprintln!("Primary font: {}", e);
             }
         }
 
         if loaded_fonts.is_empty() {
-            let fallback = canvas
+            let fallback = text_context
                 .add_font_mem(&resource!("src/assets/Roboto-Regular.ttf"))
                 .expect("Cannot add font");
-            self.font.borrow_mut().replace(fallback);
             loaded_fonts.push(fallback);
         }
 
-        if let Some(fc) = fontconfig.as_ref() {
-            for family in app_config.font().fallback() {
-                if let Some(font) = fc.find(family, None)
-                    && loaded_paths.insert(font.path.clone())
-                    && let Ok(id) = canvas.add_font(font.path.clone())
-                {
+        for family in app_config.font().fallback() {
+            match load_font(family, None) {
+                Ok(id) => {
                     loaded_fonts.push(id);
+                }
+                Err(e) => {
+                    eprintln!("Fallback font: {}", e);
                 }
             }
         }
 
-        set_font_stack(loaded_fonts.clone());
-        if let Some(first) = loaded_fonts.first() {
-            self.font.borrow_mut().replace(*first);
-        }
+        Ok((text_context, loaded_fonts))
     }
 
     fn setup_canvas(&self) -> Result<femtovg::Canvas<femtovg::renderer::OpenGl>> {
@@ -267,7 +280,16 @@ impl FemtoVGArea {
             (renderer, glow::NativeFramebuffer(id))
         };
         renderer.set_screen_target(Some(fbo));
-        Ok(Canvas::new(renderer)?)
+
+        let (text_context, loaded_fonts) = self.build_text_context()?;
+        let canvas = Canvas::new_with_text_context(renderer, text_context)?;
+
+        set_font_stack(loaded_fonts.clone());
+        if let Some(first) = loaded_fonts.first() {
+            self.font.borrow_mut().replace(*first);
+        }
+
+        Ok(canvas)
     }
 
     pub fn inner(&self) -> RefMut<'_, Option<FemtoVgAreaMut>> {
@@ -286,6 +308,68 @@ impl FemtoVgAreaMut {
     pub fn commit(&mut self, drawable: Box<dyn Drawable>) {
         self.drawables.push(drawable);
         self.redo_stack.clear();
+    }
+
+    /// Hit-test all drawables and return all indices whose bounds contain `pos`, in order from topmost to bottommost.
+    /// A small tolerance is applied to make thin shapes (lines, arrows) easier to click.
+    pub fn hit_test(&self, pos: Vec2D) -> Vec<usize> {
+        let mut results = Vec::new();
+        const HIT_TOLERANCE: f32 = 5.0;
+        for (i, d) in self.drawables.iter().enumerate().rev() {
+            if let Some((tl, br)) = d.bounds()
+                && pos.x >= tl.x - HIT_TOLERANCE
+                && pos.x <= br.x + HIT_TOLERANCE
+                && pos.y >= tl.y - HIT_TOLERANCE
+                && pos.y <= br.y + HIT_TOLERANCE
+            {
+                results.push(i);
+            }
+        }
+        results
+    }
+
+    /// Returns the bounds of the drawable at `index`, if it supports bounds.
+    pub fn get_drawable_bounds(&self, index: usize) -> Option<(Vec2D, Vec2D)> {
+        self.drawables.get(index).and_then(|d| d.bounds())
+    }
+
+    /// Returns a clone of the drawable at `index`.
+    pub fn get_drawable_clone(&self, index: usize) -> Option<Box<dyn Drawable>> {
+        self.drawables.get(index).map(|d| d.clone_box())
+    }
+
+    /// Replace the drawable at `index` with `drawable`.
+    pub fn replace_drawable(&mut self, index: usize, drawable: Box<dyn Drawable>) {
+        if index < self.drawables.len() {
+            self.drawables[index] = drawable;
+        }
+    }
+
+    /// Move the drawable at `index` to the end of the stack and return its new index.
+    pub fn move_drawable_to_end(&mut self, index: usize) -> Option<usize> {
+        if index >= self.drawables.len() {
+            return None;
+        }
+
+        if index + 1 == self.drawables.len() {
+            return Some(index);
+        }
+
+        let drawable = self.drawables.remove(index);
+        self.drawables.push(drawable);
+        Some(self.drawables.len() - 1)
+    }
+
+    /// Remove the drawable at `index`, shifting subsequent drawables down.
+    pub fn remove_drawable(&mut self, index: usize) {
+        if index < self.drawables.len() {
+            self.drawables.remove(index);
+        }
+    }
+
+    /// Set (or clear) the drawable index to skip during rendering (used while drag-previewing).
+    pub fn set_hidden_drawable_index(&mut self, index: Option<usize>) {
+        self.hidden_drawable_index = index;
     }
 
     pub fn undo(&mut self) -> bool {
@@ -432,13 +516,23 @@ impl FemtoVgAreaMut {
                 self.background_image.height() as f32,
             ),
         );
+        let mut active_tool_drawn_in_stack = false;
+
         // render the whole stack
-        for d in &mut self.drawables {
+        for (i, d) in self.drawables.iter().enumerate() {
+            if self.hidden_drawable_index == Some(i) {
+                // Draw the active tool preview in the original z position.
+                if let Some(preview) = self.active_tool.borrow().get_drawable() {
+                    preview.draw(canvas, font, bounds)?;
+                    active_tool_drawn_in_stack = true;
+                }
+                continue;
+            }
             d.draw(canvas, font, bounds)?;
         }
 
-        // render active tool
-        if let Some(d) = self.active_tool.borrow().get_drawable() {
+        // render active tool (default: on top) when not already drawn in stack order
+        if !active_tool_drawn_in_stack && let Some(d) = self.active_tool.borrow().get_drawable() {
             d.draw(canvas, font, bounds)?;
         }
 
