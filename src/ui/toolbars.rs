@@ -300,7 +300,7 @@ impl SimpleComponent for ToolsToolbar {
                 },
                 GroupableTool {
                     tool: Tools::Pixelate,
-                    icon_name: "tetris-app-regular".into(),
+                    icon_name: "eye-off-regular".into(),
                     tooltip: None,
                 },
             ],
