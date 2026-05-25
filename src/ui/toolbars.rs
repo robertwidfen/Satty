@@ -255,7 +255,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_focusable: false,
                 set_hexpand: false,
 
-                set_icon_name: "tetris-app-regular",
+                set_icon_name: "eye-off-regular",
                 ActionablePlus::set_action::<ToolsAction>: Tools::Pixelate,
             },
             #[name(highlight_button)]
