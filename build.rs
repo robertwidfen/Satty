@@ -77,7 +77,7 @@ fn main() -> Result<(), io::Error> {
             "page-fit-regular",
             "resize-large-regular",
             "arrow-counterclockwise-regular",
-            "tetris-app-regular",
+            "eye-off-regular",
         ],
     );
 
