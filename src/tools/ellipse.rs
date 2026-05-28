@@ -1,6 +1,6 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::{Sender, gtk::gdk::Key};
+use relm4::Sender;
 
 use crate::{
     math::Vec2D,
@@ -144,15 +144,6 @@ impl Tool for EllipseTool {
                 }
             }
             _ => ToolUpdateResult::Unmodified,
-        }
-    }
-
-    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.ellipse.is_some() {
-            self.ellipse = None;
-            ToolUpdateResult::Redraw
-        } else {
-            ToolUpdateResult::Unmodified
         }
     }
 
