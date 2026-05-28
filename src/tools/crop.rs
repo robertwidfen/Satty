@@ -413,17 +413,9 @@ impl Tool for CropTool {
     fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
         match event.key {
             //FIXME: use if let guards as soon as they're stabilized (1.95)
-            Key::Escape if self.crop.is_some() => {
+            Key::Delete if self.crop.is_some() => {
                 if self.crop.as_mut().unwrap().active {
                     self.handle_dismissed()
-                } else {
-                    ToolUpdateResult::Unmodified
-                }
-            }
-            //FIXME: use if let guards as soon as they're stabilized (1.95)
-            Key::Return if self.crop.is_some() => {
-                if self.crop.as_mut().unwrap().active {
-                    self.handle_deactivated()
                 } else {
                     ToolUpdateResult::Unmodified
                 }
