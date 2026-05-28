@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use anyhow::Result;
 use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img};
 
-use relm4::{Sender, gtk::gdk::Key};
+use relm4::Sender;
 
 use crate::{
     configuration::APP_CONFIG,
@@ -227,15 +227,6 @@ impl Tool for BlurTool {
                 }
             }
             _ => ToolUpdateResult::Unmodified,
-        }
-    }
-
-    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.blur.is_some() {
-            self.blur = None;
-            ToolUpdateResult::Redraw
-        } else {
-            ToolUpdateResult::Unmodified
         }
     }
 
