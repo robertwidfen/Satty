@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::fmt;
+use std::fmt::{self};
 use std::str::FromStr;
 use std::{
     borrow::Cow,
@@ -40,6 +40,7 @@ mod ellipse;
 mod highlight;
 mod line;
 mod marker;
+mod pixelate;
 mod pointer;
 mod rectangle;
 mod text;
@@ -191,6 +192,11 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     fn get_rendering_mode(&self) -> RenderingMode {
         RenderingMode::Default
     }
+
+    fn is_renderable(&self) -> bool {
+        true
+    }
+
     fn bounds_only_valid_after_redraw(&self) -> bool {
         false
     }
@@ -260,17 +266,18 @@ pub enum ToolUpdateResult {
     RedrawAndStopPropagation,
 }
 
+use self::{brush::BrushTool, marker::MarkerTool};
+use crate::tools::pixelate::PixelateMode;
 pub use arrow::ArrowTool;
 pub use blur::BlurTool;
 pub use crop::CropTool;
 pub use ellipse::EllipseTool;
 pub use highlight::{HighlightTool, Highlighters};
 pub use line::LineTool;
+pub use pixelate::PixelateTool;
 pub use pointer::PointerTool;
 pub use rectangle::RectangleTool;
 pub use text::{Text, TextTool};
-
-use self::{brush::BrushTool, marker::MarkerTool};
 
 thread_local! {
     static CROP_TOOL_SINGLETON: OnceCell<Rc<RefCell<CropTool>>> = const { OnceCell::new() };
@@ -297,6 +304,9 @@ pub enum Tools {
     Blur = 8,
     Highlight = 9,
     Brush = 10,
+    Pixelate = 11,
+    FringePixelate = 12,
+    Fringe = 13,
 }
 
 impl fmt::Display for Tools {
@@ -313,6 +323,9 @@ impl fmt::Display for Tools {
             Tools::Marker => "Marker",
             Tools::Blur => "Blur",
             Tools::Highlight => "Highlight",
+            Tools::Pixelate => "Pixelate",
+            Tools::FringePixelate => "Fringe-Pixelate",
+            Tools::Fringe => "Fringe",
         };
         write!(f, "{}", name)
     }
@@ -338,6 +351,9 @@ impl FromStr for Tools {
             "blur" => Ok(Self::Blur),
             "highlight" => Ok(Self::Highlight),
             "brush" => Ok(Self::Brush),
+            "pixelate" => Ok(Self::Pixelate),
+            "fringe-pixelate" => Ok(Self::FringePixelate),
+            "fringe" => Ok(Self::Fringe),
             _ => Err(ParseCommandError),
         }
     }
@@ -367,6 +383,22 @@ impl ToolsManager {
         let text_tool = Rc::new(RefCell::new(TextTool::default()));
         tools.insert(Tools::Text, text_tool.clone());
         tools.insert(Tools::Blur, Rc::new(RefCell::new(BlurTool::default())));
+        tools.insert(
+            Tools::Pixelate,
+            Rc::new(RefCell::new(PixelateTool::with_mode(
+                PixelateMode::Pixelate,
+            ))),
+        );
+        tools.insert(
+            Tools::FringePixelate,
+            Rc::new(RefCell::new(PixelateTool::with_mode(
+                PixelateMode::FringePixelate,
+            ))),
+        );
+        tools.insert(
+            Tools::Fringe,
+            Rc::new(RefCell::new(PixelateTool::with_mode(PixelateMode::Fringe))),
+        );
         tools.insert(
             Tools::Highlight,
             Rc::new(RefCell::new(HighlightTool::default())),
@@ -435,6 +467,9 @@ impl FromVariant for Tools {
             8 => Some(Tools::Blur),
             9 => Some(Tools::Highlight),
             10 => Some(Tools::Brush),
+            11 => Some(Tools::Pixelate),
+            12 => Some(Tools::FringePixelate),
+            13 => Some(Tools::Fringe),
             _ => None,
         })
     }
@@ -452,6 +487,9 @@ impl From<command_line::Tools> for Tools {
             command_line::Tools::Text => Self::Text,
             command_line::Tools::Marker => Self::Marker,
             command_line::Tools::Blur => Self::Blur,
+            command_line::Tools::Pixelate => Self::Pixelate,
+            command_line::Tools::FringePixelate => Self::FringePixelate,
+            command_line::Tools::Fringe => Self::Fringe,
             command_line::Tools::Highlight => Self::Highlight,
             command_line::Tools::Brush => Self::Brush,
         }

@@ -98,6 +98,7 @@ Default single-key shortcuts:
 - <kbd>t</kbd>: Text tool
 - <kbd>m</kbd>: Numbered Marker tool
 - <kbd>u</kbd>: Blur tool
+- <kbd>x</kbd>: Pixelate tool
 - <kbd>g</kbd>: Highlight tool
 
 ### Pointer Tool <sup>NEXTRELEASE</sup>
@@ -123,7 +124,7 @@ Newly created annotations can be autoselected if enabled in the config.
 Arrow and line:
 - <kbd>Shift</kbd> to make tool snap to 15° steps.
 
-Rectangle, ellipse, blur <sup>0.22.0</sup> and highlight block mode<sup>0.22.0</sup>: 
+Rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>: 
 - <kbd>Alt</kbd> to center the tool around origin.
 - <kbd>Shift</kbd> to make width and high uniform - results in square resp. circle.
 - Hold both to combine them.
@@ -165,6 +166,55 @@ Pressing any unbound key will print its name to the console.
 Setting a binding to `"none"` will unbind it.
 
 The defaults are listed in the `config.toml`.
+Arrow and line:
+- <kbd>Shift</kbd> to make tool snap to 15° steps.
+
+Rectangle, ellipse, blur <sup>0.22.0</sup> and highlight block mode<sup>0.22.0</sup>: 
+- <kbd>Alt</kbd> to center the tool around origin.
+- <kbd>Shift</kbd> to make width and high uniform - results in square resp. circle.
+- Hold both to combine them.
+
+Text:
+- Press <kbd>Shift+Enter</kbd> to insert line break.
+- Combine <kbd>Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> for word jump or <kbd>Ctrl</kbd> with <kbd>Backspace</kbd> or <kbd>Delete</kbd> for word delete.
+- Press <kbd>Enter</kbd> or switch to another tool to accept input, press <kbd>Escape</kbd> to discard entered text.
+- <kbd>Home</kbd> and <kbd>End</kbd> go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). <kbd>Ctrl</kbd> with <kbd>Home</kbd>/<kbd>End</kbd> jumps to start/end of text buffer.
+- <kbd>Up</kbd> or <kbd>Down</kbd> to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer). <sup>0.20.1</sup>
+- Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor,  <kbd>Shift+Left</kbd> to select characters before cursor,  <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>0.20.1</sup>
+- <kbd>Double-click </kbd> to select word under cursor.Triple-click to select all text. <sup>0.20.1</sup>
+- <kbd>Ctrl+A</kbd> to select all text. <sup>0.20.1</sup>
+- <kbd>Ctrl+C</kbd> to copy selected text to clipboard. <sup>0.20.1</sup>
+- <kbd>Ctrl+X</kbd> to cut selected text to clipboard. <sup>0.20.1</sup>
+- <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
+- <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
+- Press <kbd>Alt</kbd> to cycle the text effect: none → inverted outline → contrast outline (black/white) → drop shadow. <sup>experimental</sup> <sup>0.22.0</sup>
+
+Marker:
+- Hold <kbd>Alt</kbd> to get extra ring. <sup>0.22.0</sup>
+
+Highlight: 
+- Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
+- Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
+
+Pixelate: 
+- <kbd>Alt</kbd> to use pixelation that takes data from outside the selection as a source. <sup>NEXTRELEASE</sup>
+
+ #### Overwriting Keybindings <sup>NEXTRELEASE</sup>
+ 
+ Shortcuts can be overwritten in the config by 
+ ```toml
+ [keybinds]
+ "BINDING" = "TOOL-OR-COMMAND"
+ ```
+ 
+ Where `BINDING` follows the GTK syntax. This means modifiers are enclosed in angle brackets (e.g., `<mod>`) and keys are specified by name (for example, `-` must be written as `minus`). 
+ 
+ Pressing any unbound key will print its name to the console.
+ 
+ Setting a binding to `"none"` will unbind it.
+ 
+ The defaults are listed in the `config.toml`.
+>>>>>>> conflict 1 of 3 ends
 
 ### Configuration File
 
@@ -262,63 +312,64 @@ notification-thumbnail = "screenshot"
 # "i" = "none" # unbind "i" default for line
 # "l" = "line"
 
-# Global
-"<Shift><Control>d" = "open-gtk-inspector"
-"<Shift><Control>i" = "open-gtk-inspector"
-"<Alt>Left" = "pan-left"
-"<Alt>Right" = "pan-right"
-"<Alt>Up" = "pan-up"
-"<Alt>Down" = "pan-down"
-"Delete" = "delete-selection"
-"Escape" = "run-actions-on-escape"
-"Return" = "run-actions-on-enter"
-"<Control>t" = "toggle-toolbars"
-
-# scale is in %, 0 is fit to window
-"<Alt>2" = "scale:50"
-"<Alt>3" = "scale:33"
-"<Alt>4" = "scale:25"
-"<Control>2" = "scale:200"
-"<Control>3" = "scale:300"
-"<Control>4" = "scale:400"
-
-# top toolbar
-"<Alt>1" = "scale:100"
-"<Control>1" = "scale:0"
-"<Shift>Delete" = "clear-all"
-"<Control>z" = "undo"
-"<Control>y" = "redo"
-"p" = "pointer"
-"c" = "crop"
-"b" = "brush"
-"i" = "line"
-"z" = "arrow"
-"r" = "rectangle"
-"e" = "ellipse"
-"t" = "text"
-"m" = "marker"
-"u" = "blur"
-"g" = "highlight"
-"<Control>s" = "save-to-file"
-"<Shift><Control>s" = "save-to-file-as"
-"<Control>c" = "save-to-clipboard"
-"<Shift><Control>c" = "copy-filepath-to-clipboard"
-
-# bottom toolbar
-"1" = "select-color-index:1"
-"2" = "select-color-index:2"
-"3" = "select-color-index:3"
-"4" = "select-color-index:4"
-"5" = "select-color-index:5"
-"6" = "select-color-index:6"
-"7" = "select-color-index:7"
-"8" = "select-color-index:8"
-"9" = "select-color-index:9"
-"minus" = "cycle-size"
-#"..." = "select-size:(small|medium|large)"
-"s" = "focus-annotation-size-factor"
-"f" = "toggle-fill"
-"k" = "toggle-round-caps"
+ # Global
+ "<Shift><Control>d" = "open-gtk-inspector"
+ "<Shift><Control>i" = "open-gtk-inspector"
+ "<Alt>Left" = "pan-left"
+ "<Alt>Right" = "pan-right"
+ "<Alt>Up" = "pan-up"
+ "<Alt>Down" = "pan-down"
+ "Delete" = "delete-selection"
+ "Escape" = "run-actions-on-escape"
+ "Return" = "run-actions-on-enter"
+ "<Control>t" = "toggle-toolbars"
+ 
+ # scale is in %, 0 is fit to window
+ "<Alt>2" = "scale:50"
+ "<Alt>3" = "scale:33"
+ "<Alt>4" = "scale:25"
+ "<Control>2" = "scale:200"
+ "<Control>3" = "scale:300"
+ "<Control>4" = "scale:400"
+ 
+ # top toolbar
+ "<Alt>1" = "scale:100"
+ "<Control>1" = "scale:0"
+ "<Shift>Delete" = "clear-all"
+ "<Control>z" = "undo"
+ "<Control>y" = "redo"
+ "p" = "pointer"
+ "c" = "crop"
+ "b" = "brush"
+ "i" = "line"
+ "z" = "arrow"
+ "r" = "rectangle"
+ "e" = "ellipse"
+ "t" = "text"
+ "m" = "marker"
+ "u" = "blur"
+ "x" = "pixelate"
+ "g" = "highlight"
+ "<Control>s" = "save-to-file"
+ "<Shift><Control>s" = "save-to-file-as"
+ "<Control>c" = "save-to-clipboard"
+ "<Shift><Control>c" = "copy-filepath-to-clipboard"
+ 
+ # bottom toolbar
+ "1" = "select-color-index:1"
+ "2" = "select-color-index:2"
+ "3" = "select-color-index:3"
+ "4" = "select-color-index:4"
+ "5" = "select-color-index:5"
+ "6" = "select-color-index:6"
+ "7" = "select-color-index:7"
+ "8" = "select-color-index:8"
+ "9" = "select-color-index:9"
+ "minus" = "cycle-size"
+ #"..." = "select-size:(small|medium|large)"
+ "s" = "focus-annotation-size-factor"
+ "f" = "toggle-fill"
+ "k" = "toggle-round-caps"
 
 # Font to use for text annotations
 [font]
@@ -397,7 +448,7 @@ Options:
       --corner-roundness <CORNER_ROUNDNESS>
           Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
       --initial-tool <TOOL>
-          Select the tool on startup [alias: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, highlight, brush]
+          Select the tool on startup [alias: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, pixelate, fringe-pixelate, fringe, highlight, brush]
       --copy-command <COPY_COMMAND>
           Configure the command to be called on copy, for example `wl-copy`
       --annotation-size-factor <ANNOTATION_SIZE_FACTOR>
@@ -577,3 +628,8 @@ Made with [contrib.rocks](https://contrib.rocks).
 The source code is released under the MPL-2.0 license.
 
 The Font 'Roboto Regular' from Google is released under Apache-2.0 license.
+
+## Credits
+
+- Fringe-Pixelate was inspired by https://github.com/flameshot-org/flameshot/pull/3765/changes
+
