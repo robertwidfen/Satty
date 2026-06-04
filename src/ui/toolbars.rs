@@ -231,6 +231,14 @@ impl SimpleComponent for ToolsToolbar {
                 set_icon_name: "drop-regular",
                 ActionablePlus::set_action::<ToolsAction>: Tools::Blur,
             },
+            #[name(pixelate_button)]
+            gtk::ToggleButton {
+                set_focusable: false,
+                set_hexpand: false,
+
+                set_icon_name: "eye-off-regular",
+                ActionablePlus::set_action::<ToolsAction>: Tools::Pixelate,
+            },
             #[name(highlight_button)]
             gtk::ToggleButton {
                 set_focusable: false,
@@ -333,6 +341,7 @@ impl SimpleComponent for ToolsToolbar {
             (Tools::Text, widgets.text_button.clone()),
             (Tools::Marker, widgets.marker_button.clone()),
             (Tools::Blur, widgets.blur_button.clone()),
+            (Tools::Pixelate, widgets.pixelate_button.clone()),
             (Tools::Highlight, widgets.highlight_button.clone()),
         ]);
 
