@@ -1,10 +1,6 @@
-use std::{
-    borrow::Cow,
-    cell::RefCell,
-    collections::HashMap,
-    fmt::{Debug, Display},
-    rc::Rc,
-};
+use std::fmt;
+use std::str::FromStr;
+use std::{borrow::Cow, cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
 
 use anyhow::Result;
 use femtovg::{Canvas, FontId, renderer::OpenGl};
@@ -21,7 +17,7 @@ use relm4::{
 use serde_derive::Deserialize;
 
 use crate::{
-    math::Vec2D,
+    math::{Vec2D, ensure_bounding_box},
     sketch_board::{InputEvent, KeyEventMsg, MouseEventMsg, SketchBoardInput, TextEventMsg},
     style::Style,
 };
@@ -116,6 +112,10 @@ pub trait Tool {
         ToolUpdateResult::Unmodified
     }
 
+    fn handle_reset(&mut self) {
+        // override if your tool needs to reset a internal state, e.g. the next marker number for the marker tool
+    }
+
     fn set_im_context(&mut self, _context: Option<InputContext>) {}
 
     fn get_drawable(&self) -> Option<&dyn Drawable>;
@@ -151,11 +151,91 @@ pub trait Drawable: DrawableClone + Debug {
     -> Result<()>;
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
+    /// Returns the bounding box (top-left, bottom-right) in image coordinates, if supported.
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        None
+    }
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        let _ = (pos, tolerance);
+        false
+    }
+    /// Translates the drawable by the given delta (in image coordinates).
+    fn translate(&mut self, delta: Vec2D) {
+        let _ = delta;
+    }
+    /// Resizes the drawable to fit the new bounding box defined by top-left and bottom-right.
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let _ = (tl, br);
+    }
+    /// Returns position, text content and style if this drawable is an editable text, for
+    /// re-opening it in the text tool. Returns None for all other drawable types.
+    fn edit_info(&self) -> Option<(Vec2D, String, crate::style::Style)> {
+        None
+    }
+
+    /// Updates only the drawable color when supported. No-op for unsupported drawables.
+    fn set_color(&mut self, _color: crate::style::Color) {}
+
+    /// Returns the drawable color when supported.
+    fn get_color(&self) -> Option<crate::style::Color> {
+        None
+    }
+
+    /// Returns whether the drawable is filled when supported. Returns false for unsupported drawables.
+    fn get_fill(&self) -> bool {
+        false
+    }
+
+    /// Updates only the drawable fill flag when supported. No-op for unsupported drawables.
+    fn set_fill(&mut self, _fill: bool) {}
+
+    /// Returns the drawable size when supported.
+    fn get_size(&self) -> Option<crate::style::Size> {
+        None
+    }
+
+    /// Updates only the drawable size when supported. No-op for unsupported drawables.
+    fn set_size(&mut self, _size: crate::style::Size) {}
+}
+
+pub fn hit_test_rectangle(
+    pos: Vec2D,
+    top_left: Vec2D,
+    size: Option<Vec2D>,
+    tolerance: f32,
+    filled: bool,
+) -> bool {
+    let Some(size) = size else {
+        return false;
+    };
+
+    // ensure a valid bounding box - dragging br to the left/up of tl is possible
+    // and then the hit test should still work as expected
+    let (tl, br) = ensure_bounding_box(top_left, top_left + size);
+
+    if pos.x < tl.x - tolerance
+        || pos.x > br.x + tolerance
+        || pos.y < tl.y - tolerance
+        || pos.y > br.y + tolerance
+    {
+        return false;
+    }
+
+    // FIXME allow hit only on border? Eases handling of overlapping annoatations
+    if filled {
+        return true;
+    }
+
+    let tl_inner = tl + tolerance;
+    let br_inner = br - tolerance;
+
+    pos.x < tl_inner.x || pos.x > br_inner.x || pos.y < tl_inner.y || pos.y > br_inner.y
 }
 
 #[derive(Debug)]
 pub enum ToolUpdateResult {
     Commit(Box<dyn Drawable>),
+    ReplaceDrawable(usize, Box<dyn Drawable>),
     Redraw,
     Unmodified,
     StopPropagation,
@@ -168,10 +248,11 @@ pub use crop::CropTool;
 pub use ellipse::EllipseTool;
 pub use highlight::{HighlightTool, Highlighters};
 pub use line::LineTool;
+pub use pointer::PointerTool;
 pub use rectangle::RectangleTool;
 pub use text::TextTool;
 
-use self::{brush::BrushTool, marker::MarkerTool, pointer::PointerTool};
+use self::{brush::BrushTool, marker::MarkerTool};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -189,9 +270,9 @@ pub enum Tools {
     Brush = 10,
 }
 
-impl Tools {
-    pub fn display_name(&self) -> &'static str {
-        match self {
+impl fmt::Display for Tools {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
             Tools::Pointer => "Pointer",
             Tools::Crop => "Crop",
             Tools::Brush => "Brush",
@@ -200,28 +281,35 @@ impl Tools {
             Tools::Rectangle => "Rectangle",
             Tools::Ellipse => "Ellipse",
             Tools::Text => "Text",
-            Tools::Marker => "Numbered Marker",
+            Tools::Marker => "Marker",
             Tools::Blur => "Blur",
             Tools::Highlight => "Highlight",
-        }
+        };
+        write!(f, "{}", name)
     }
 }
 
-// used for printing
-impl Display for Tools {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Pointer => write!(f, "pointer"),
-            Self::Crop => write!(f, "crop"),
-            Self::Line => write!(f, "line"),
-            Self::Arrow => write!(f, "arrow"),
-            Self::Rectangle => write!(f, "rectangle"),
-            Self::Ellipse => write!(f, "ellipse"),
-            Self::Text => write!(f, "text"),
-            Self::Marker => write!(f, "marker"),
-            Self::Blur => write!(f, "blur"),
-            Self::Highlight => write!(f, "highlight"),
-            Self::Brush => write!(f, "brush"),
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseCommandError;
+
+impl FromStr for Tools {
+    type Err = ParseCommandError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let lower_name = s.to_lowercase();
+        match lower_name.as_str() {
+            "pointer" => Ok(Self::Pointer),
+            "crop" => Ok(Self::Crop),
+            "line" => Ok(Self::Line),
+            "arrow" => Ok(Self::Arrow),
+            "rectangle" => Ok(Self::Rectangle),
+            "ellipse" => Ok(Self::Ellipse),
+            "text" => Ok(Self::Text),
+            "marker" => Ok(Self::Marker),
+            "blur" => Ok(Self::Blur),
+            "highlight" => Ok(Self::Highlight),
+            "brush" => Ok(Self::Brush),
+            _ => Err(ParseCommandError),
         }
     }
 }
@@ -229,16 +317,14 @@ impl Display for Tools {
 pub struct ToolsManager {
     tools: HashMap<Tools, Rc<RefCell<dyn Tool>>>,
     crop_tool: Rc<RefCell<CropTool>>,
+    pointer_tool: Rc<RefCell<PointerTool>>,
+    text_tool: Rc<RefCell<TextTool>>,
 }
 
 impl ToolsManager {
     pub fn new() -> Self {
         let mut tools: HashMap<Tools, Rc<RefCell<dyn Tool>>> = HashMap::new();
         //tools.insert(Tools::Crop, Rc::new(RefCell::new(CropTool::default())));
-        tools.insert(
-            Tools::Pointer,
-            Rc::new(RefCell::new(PointerTool::default())),
-        );
         tools.insert(Tools::Line, Rc::new(RefCell::new(LineTool::default())));
         tools.insert(Tools::Arrow, Rc::new(RefCell::new(ArrowTool::default())));
         tools.insert(
@@ -249,7 +335,8 @@ impl ToolsManager {
             Tools::Ellipse,
             Rc::new(RefCell::new(EllipseTool::default())),
         );
-        tools.insert(Tools::Text, Rc::new(RefCell::new(TextTool::default())));
+        let text_tool = Rc::new(RefCell::new(TextTool::default()));
+        tools.insert(Tools::Text, text_tool.clone());
         tools.insert(Tools::Blur, Rc::new(RefCell::new(BlurTool::default())));
         tools.insert(
             Tools::Highlight,
@@ -259,17 +346,26 @@ impl ToolsManager {
         tools.insert(Tools::Brush, Rc::new(RefCell::new(BrushTool::default())));
 
         let crop_tool = Rc::new(RefCell::new(CropTool::default()));
-        Self { tools, crop_tool }
+        let pointer_tool = Rc::new(RefCell::new(PointerTool::default()));
+        let text_tool = Rc::new(RefCell::new(TextTool::default()));
+        Self {
+            tools,
+            text_tool,
+            crop_tool,
+            pointer_tool,
+        }
     }
 
     pub fn get(&self, tool: &Tools) -> Rc<RefCell<dyn Tool>> {
         match tool {
             Tools::Crop => self.crop_tool.clone(),
+            Tools::Pointer => self.pointer_tool.clone(),
+            Tools::Text => self.text_tool.clone(),
             _ => self
                 .tools
                 .get(tool)
                 .unwrap_or_else(|| {
-                    panic!("Did you add the requested too {tool:#?} to the tools HashMap?")
+                    panic!("Did you add the requested to {tool:#?} to the tools HashMap?")
                 })
                 .clone(),
         }
@@ -277,6 +373,14 @@ impl ToolsManager {
 
     pub fn get_crop_tool(&self) -> Rc<RefCell<CropTool>> {
         self.crop_tool.clone()
+    }
+
+    pub fn get_pointer_tool(&self) -> Rc<RefCell<PointerTool>> {
+        self.pointer_tool.clone()
+    }
+
+    pub fn get_text_tool(&self) -> Rc<RefCell<TextTool>> {
+        self.text_tool.clone()
     }
 }
 

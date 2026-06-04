@@ -3,42 +3,28 @@ use std::cell::RefCell;
 use anyhow::Result;
 use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img};
 
-use relm4::{
-    Sender,
-    gtk::gdk::{Key, ModifierType},
-};
+use relm4::Sender;
 
 use crate::{
     configuration::APP_CONFIG,
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
+    tools::hit_test_rectangle,
 };
 
-use super::{
-    Drawable, DrawableClone, Tool, ToolUpdateResult, Tools,
-    drag_box::{DragBox, draw_center_marker},
-};
+use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 
 #[derive(Clone, Debug)]
 pub struct Blur {
-    origin: Vec2D,
     top_left: Vec2D,
     size: Option<Vec2D>,
     style: Style,
-    centered: bool,
     editing: bool,
     cached_image: RefCell<Option<ImageId>>,
 }
 
 impl Blur {
-    fn calculate_shape(&mut self, pos: Vec2D, modifier: ModifierType) {
-        let drag_box = DragBox::from_origin_delta(self.origin, pos, modifier);
-        self.centered = drag_box.centered;
-        self.top_left = drag_box.top_left;
-        self.size = Some(drag_box.size);
-    }
-
     fn blur(
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         pos: Vec2D,
@@ -80,6 +66,39 @@ impl Blur {
 }
 
 impl Drawable for Blur {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let size = self.size?;
+        Some(math::ensure_bounding_box(
+            self.top_left,
+            self.top_left + size,
+        ))
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        hit_test_rectangle(pos, self.top_left, self.size, tolerance, true)
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+        // invalidate cached blur image since position changed
+        *self.cached_image.borrow_mut() = None;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        self.top_left = tl;
+        self.size = Some(br - tl);
+        *self.cached_image.borrow_mut() = None;
+    }
+
+    fn get_size(&self) -> Option<crate::style::Size> {
+        Some(self.style.size)
+    }
+
+    fn set_size(&mut self, size: crate::style::Size) {
+        self.style.size = size;
+        *self.cached_image.borrow_mut() = None;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -95,10 +114,6 @@ impl Drawable for Blur {
             bounds,
         );
         if self.editing {
-            if self.centered {
-                draw_center_marker(canvas, self.origin);
-            }
-
             // set style
             let mut color = Color::black();
             color.set_alphaf(0.6);
@@ -197,11 +212,9 @@ impl Tool for BlurTool {
 
                 // start new
                 self.blur = Some(Blur {
-                    origin: event.pos,
                     top_left: event.pos,
                     size: None,
                     style: self.style,
-                    centered: false,
                     editing: true,
                     cached_image: RefCell::new(None),
                 });
@@ -219,7 +232,7 @@ impl Tool for BlurTool {
 
                         ToolUpdateResult::Redraw
                     } else {
-                        a.calculate_shape(event.pos, event.modifier);
+                        a.size = Some(event.pos);
                         a.editing = false;
 
                         let result = a.clone_box();
@@ -240,7 +253,7 @@ impl Tool for BlurTool {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;
                     }
-                    a.calculate_shape(event.pos, event.modifier);
+                    a.size = Some(event.pos);
 
                     ToolUpdateResult::Redraw
                 } else {
@@ -248,15 +261,6 @@ impl Tool for BlurTool {
                 }
             }
             _ => ToolUpdateResult::Unmodified,
-        }
-    }
-
-    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.blur.is_some() {
-            self.blur = None;
-            ToolUpdateResult::Redraw
-        } else {
-            ToolUpdateResult::Unmodified
         }
     }
 

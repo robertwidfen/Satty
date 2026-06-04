@@ -2,10 +2,9 @@ use anyhow::anyhow;
 
 use femtovg::imgref::Img;
 use femtovg::rgb::{ComponentBytes, RGBA};
-use keycode::{KeyMap, KeyMappingId};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gdk_pixbuf::glib::Bytes;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::io::Write;
 use std::panic;
 use std::path::{Path, PathBuf};
@@ -21,10 +20,11 @@ use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 use crate::configuration::{APP_CONFIG, Action};
 use crate::femtovg_area::FemtoVGArea;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
+use crate::keybindings::{ActionTrigger, ShortcutCommand, ShortcutRegistry};
 use crate::math::Vec2D;
 use crate::notification::log_result;
-use crate::style::Style;
-use crate::tools::{Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
+use crate::style::{Color, Size, Style};
+use crate::tools::{PointerTool, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
 use crate::ui::toolbars::ToolbarEvent;
 use xdg::BaseDirectories;
 
@@ -38,6 +38,8 @@ pub enum SketchBoardInput {
     PinchStart,
     PinchScale(f32),
     PinchEnd,
+    NudgeSelection(Vec2D),
+    RefreshSelectionBounds(usize),
     ToolbarEvent(ToolbarEvent),
     RenderResult(RenderedImage, Vec<Action>),
     RenderResultFollowup(Option<Pixbuf>, Vec<Action>, Option<String>),
@@ -53,6 +55,10 @@ pub enum SketchBoardOutput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    SetColor(Color),
+    SetSize(Size),
+    FocusAnnotationSizeFactorShortcut,
+    SetFill(bool),
     DimensionsUpdate(Option<(i32, i32)>),
     ToolEditingChanged(bool),
 }
@@ -235,9 +241,10 @@ impl InputEvent {
 
                 MouseEventType::Scroll => {
                     if me.modifier.contains(ModifierType::CONTROL_MASK) {
-                        let mut factor = APP_CONFIG.read().zoom_factor();
-                        if me.is_touchpad {
-                            factor = 1.0 + (factor - 1.0) / 2.0; // decrease a bit
+                        let factor = if me.is_touchpad {
+                            APP_CONFIG.read().zoom_touchpad_factor()
+                        } else {
+                            APP_CONFIG.read().zoom_factor()
                         };
                         match me.pos.y {
                             v if v < 0.0 => renderer.set_zoom_scale(factor),
@@ -246,7 +253,7 @@ impl InputEvent {
                         }
                     } else {
                         let pan_step_size = if me.is_touchpad {
-                            -2.0 // invert for natural scrolling and decrease a bit
+                            APP_CONFIG.read().pan_touchpad_step_size()
                         } else {
                             APP_CONFIG.read().pan_step_size()
                         };
@@ -270,16 +277,45 @@ impl InputEvent {
 
 pub struct SketchBoard {
     renderer: FemtoVGArea,
+    ime_enabled: Rc<Cell<bool>>,
+    shortcut_registry: ShortcutRegistry,
     active_tool: Rc<RefCell<dyn Tool>>,
     tool_edit_mode: bool,
     tools: ToolsManager,
     pinch_last_scale: f32,
+    pointer_tool: Rc<RefCell<PointerTool>>,
+    text_tool: Rc<RefCell<TextTool>>,
+    return_to_pointer_after_text_commit: bool,
+    temporary_pointer_previous_tool: Option<Tools>,
     style: Style,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
 }
 
 impl SketchBoard {
+    fn sync_toolbar_style_from_drawable(
+        &mut self,
+        drawable: &dyn crate::tools::Drawable,
+        sender: &ComponentSender<Self>,
+    ) {
+        if let Some(color) = drawable.get_color() {
+            self.style.color = color;
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SetColor(self.style.color));
+        }
+        self.style.fill = drawable.get_fill();
+        sender
+            .output_sender()
+            .emit(SketchBoardOutput::SetFill(self.style.fill));
+        if let Some(size) = drawable.get_size() {
+            self.style.size = size;
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SetSize(self.style.size));
+        }
+    }
+
     fn refresh_screen(&mut self) {
         self.renderer.queue_render();
     }
@@ -741,6 +777,8 @@ impl SketchBoard {
         if self.active_tool.borrow().active() {
             self.active_tool.borrow_mut().handle_undo()
         } else if self.renderer.undo() {
+            self.renderer.set_hidden_drawable_index(None);
+            self.pointer_tool.borrow_mut().deselect();
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
@@ -751,6 +789,8 @@ impl SketchBoard {
         if self.active_tool.borrow().active() {
             self.active_tool.borrow_mut().handle_redo()
         } else if self.renderer.redo() {
+            self.renderer.set_hidden_drawable_index(None);
+            self.pointer_tool.borrow_mut().deselect();
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
@@ -759,7 +799,15 @@ impl SketchBoard {
 
     fn handle_reset(&mut self) -> ToolUpdateResult {
         // can't use lazy || here
-        if self.deactivate_active_tool() | self.renderer.reset() {
+        let did_reset = self.deactivate_active_tool() | self.renderer.reset();
+
+        self.renderer.set_hidden_drawable_index(None);
+        self.pointer_tool.borrow_mut().deselect();
+
+        // Reset marker numbering after drawable undo hooks ran.
+        self.tools.get(&Tools::Marker).borrow_mut().handle_reset();
+
+        if did_reset {
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
@@ -789,6 +837,202 @@ impl SketchBoard {
         ToolUpdateResult::Unmodified
     }
 
+    fn handle_pointer_tool_click(
+        &mut self,
+        me: &MouseEventMsg,
+        sender: &ComponentSender<Self>,
+    ) -> ToolUpdateResult {
+        if self.active_tool_type() == Tools::Pointer {
+            if me.type_ == MouseEventType::Click && me.n_pressed == 2 {
+                self.handle_pointer_tool_double_click(me.pos, sender)
+                    .unwrap_or_else(|| ToolUpdateResult::Unmodified)
+            } else if me.type_ == MouseEventType::Click
+                && me.n_pressed == 1
+                && let Some(previous_tool) = self.temporary_pointer_previous_tool
+                && previous_tool != Tools::Pointer
+                && self.renderer.hit_test(me.pos).is_empty()
+                && self
+                    .pointer_tool
+                    .borrow()
+                    .hit_test_handles(me.pos)
+                    .is_none()
+            {
+                // switch back to previous tool
+                self.temporary_pointer_previous_tool = None;
+                self.handle_toolbar_event(
+                    ToolbarEvent::ToolSelected(previous_tool),
+                    sender.clone(),
+                );
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ToolSwitchShortcut(previous_tool));
+                self.active_tool
+                    .borrow_mut()
+                    .handle_event(ToolEvent::Input(InputEvent::Mouse(*me)))
+            } else {
+                let result = if me.type_ == MouseEventType::BeginDrag {
+                    self.handle_pointer_tool_begin_drag(me, sender)
+                        .unwrap_or(ToolUpdateResult::Unmodified)
+                } else if !matches!(
+                    me.type_,
+                    MouseEventType::PointerPos | MouseEventType::UpdateDrag
+                ) {
+                    self.renderer.set_hidden_drawable_index(None);
+                    ToolUpdateResult::Redraw
+                } else {
+                    ToolUpdateResult::Unmodified
+                };
+                let tool_result = self
+                    .active_tool
+                    .borrow_mut()
+                    .handle_event(ToolEvent::Input(InputEvent::Mouse(*me)));
+                match tool_result {
+                    ToolUpdateResult::Unmodified => result,
+                    _ => tool_result,
+                }
+            }
+        } else if me.type_ == MouseEventType::Click && me.n_pressed == 1 {
+            if !me.modifier.contains(ModifierType::CONTROL_MASK)
+                && !self.renderer.hit_test(me.pos).is_empty()
+            {
+                // temporarily switch to pointer tool
+                let previous_tool = self.active_tool_type();
+                self.handle_toolbar_event(
+                    ToolbarEvent::ToolSelected(Tools::Pointer),
+                    sender.clone(),
+                );
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ToolSwitchShortcut(Tools::Pointer));
+                self.temporary_pointer_previous_tool = Some(previous_tool);
+                ToolUpdateResult::Redraw
+            } else {
+                // otherwise pass to tool
+                self.active_tool
+                    .borrow_mut()
+                    .handle_event(ToolEvent::Input(InputEvent::Mouse(*me)))
+            }
+        } else {
+            // otherwise pass to tool
+            self.active_tool
+                .borrow_mut()
+                .handle_event(ToolEvent::Input(InputEvent::Mouse(*me)))
+        }
+    }
+
+    /// Pre-processes `BeginDrag` events when the Pointer tool is active.
+    /// Returns `Some(result)` to short-circuit normal tool dispatch, or `None` to fall through.
+    fn handle_pointer_tool_begin_drag(
+        &mut self,
+        me: &crate::sketch_board::MouseEventMsg,
+        sender: &ComponentSender<Self>,
+    ) -> Option<ToolUpdateResult> {
+        // Check resize handle first (only when something is already selected)
+        let handle_hit = self.pointer_tool.borrow().hit_test_handles(me.pos);
+        if let Some(handle) = handle_hit {
+            let sel_idx = self.pointer_tool.borrow().selected_index();
+            if let Some(idx) = sel_idx
+                && let (Some(drawable), Some(bounds)) = (
+                    self.renderer.get_drawable_clone(idx),
+                    self.renderer.get_drawable_bounds(idx),
+                )
+            {
+                self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
+                self.renderer.set_hidden_drawable_index(Some(idx));
+                self.pointer_tool
+                    .borrow_mut()
+                    .begin_resize(idx, drawable, handle, bounds);
+                return Some(ToolUpdateResult::Redraw);
+            }
+        }
+
+        let is_alt_click = me.modifier.contains(ModifierType::ALT_MASK);
+        let selected_idx = self.pointer_tool.borrow().selected_index();
+        // If a drawable is already selected and the click still hits it, use it
+        if !is_alt_click
+            && let Some(selected_idx) = selected_idx
+            && let Some(drawable) = self.renderer.get_drawable_clone(selected_idx)
+            && drawable.hit_test(me.pos, 5.0)
+            && let Some((tl, br)) = self.renderer.get_drawable_bounds(selected_idx)
+        {
+            self.renderer.set_hidden_drawable_index(Some(selected_idx));
+            self.pointer_tool
+                .borrow_mut()
+                .begin_move(selected_idx, drawable, (tl, br));
+            return Some(ToolUpdateResult::Redraw);
+        }
+
+        // Check for another body hit when alt is pressed, otherwise just select topmost hit
+        let idx_to_select = if is_alt_click {
+            // Alt+Click: cycle through all overlapping objects
+            let all_hits = self.renderer.hit_test(me.pos);
+            if !all_hits.is_empty() {
+                // Get the next index in the cycle
+                self.pointer_tool
+                    .borrow_mut()
+                    .cycle_to_next_object(me.pos, all_hits)
+            } else {
+                None
+            }
+        } else {
+            // Normal click: select topmost object
+            self.renderer.hit_test(me.pos).first().copied()
+        };
+
+        if let Some(idx) = idx_to_select {
+            let sel_idx = if is_alt_click {
+                // Alt+Click: don't move to end, just use the index as-is
+                idx
+            } else {
+                // Normal click: move to end and use new index
+                self.renderer.move_drawable_to_end(idx).unwrap_or(idx)
+            };
+
+            if let (Some(drawable), Some(bounds)) = (
+                self.renderer.get_drawable_clone(sel_idx),
+                self.renderer.get_drawable_bounds(sel_idx),
+            ) {
+                self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
+                self.renderer.set_hidden_drawable_index(Some(sel_idx));
+                self.pointer_tool
+                    .borrow_mut()
+                    .begin_move(sel_idx, drawable, bounds);
+                return Some(ToolUpdateResult::Redraw);
+            }
+        }
+
+        // Clicked on empty space: deselect
+        self.renderer.set_hidden_drawable_index(None);
+        self.pointer_tool.borrow_mut().deselect();
+        Some(ToolUpdateResult::Redraw)
+    }
+
+    /// If the hit drawable is a Text, removes it from the canvas and re-opens it in the text tool.
+    fn handle_pointer_tool_double_click(
+        &mut self,
+        pos: Vec2D,
+        sender: &ComponentSender<Self>,
+    ) -> Option<ToolUpdateResult> {
+        let idx = self.renderer.hit_test(pos).first().copied()?;
+        let drawable = self.renderer.get_drawable_clone(idx)?;
+        let (text_pos, content, style) = drawable.edit_info()?;
+
+        // Remove the committed drawable and clear selection
+        self.pointer_tool.borrow_mut().deselect();
+        self.renderer.set_hidden_drawable_index(None);
+        self.renderer.remove_drawable(idx);
+
+        // Pre-populate the text tool and switch to it
+        self.text_tool
+            .borrow_mut()
+            .load_for_editing(text_pos, &content, style);
+        self.return_to_pointer_after_text_commit = true;
+        Some(self.handle_toolbar_event(
+            crate::ui::toolbars::ToolbarEvent::ToolSelected(Tools::Text),
+            sender.clone(),
+        ))
+    }
+
     fn handle_toolbar_event(
         &mut self,
         toolbar_event: ToolbarEvent,
@@ -800,12 +1044,18 @@ impl SketchBoard {
                 ToolUpdateResult::Unmodified
             }
             ToolbarEvent::ToolSelected(tool) => {
+                self.temporary_pointer_previous_tool = None;
+                self.return_to_pointer_after_text_commit = false;
+
                 // deactivate old tool and save drawable, if any
                 let old_tool = self.active_tool.clone();
                 let mut deactivate_result =
                     old_tool.borrow_mut().handle_event(ToolEvent::Deactivated);
 
                 old_tool.borrow_mut().set_im_context(None);
+
+                // If we were in the pointer tool, ensure the hidden drawable is restored
+                self.renderer.set_hidden_drawable_index(None);
 
                 if let ToolUpdateResult::Commit(d) = deactivate_result {
                     self.renderer.commit(d);
@@ -850,15 +1100,50 @@ impl SketchBoard {
             }
             ToolbarEvent::ColorSelected(color) => {
                 self.style.color = color;
-                self.active_tool
+                let mut result = self
+                    .active_tool
                     .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+
+                if self.active_tool_type() == Tools::Pointer {
+                    let selected_index = self.pointer_tool.borrow().selected_index();
+                    if let Some(index) = selected_index
+                        && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
+                    {
+                        drawable.set_color(color);
+                        self.renderer.replace_drawable(index, drawable);
+                        self.update_pointer_tool_selection(index);
+                        result = ToolUpdateResult::Redraw;
+                    }
+                }
+
+                result
             }
             ToolbarEvent::SizeSelected(size) => {
                 self.style.size = size;
-                self.active_tool
+                let mut result = self
+                    .active_tool
                     .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SetSize(self.style.size));
+
+                if self.active_tool_type() == Tools::Pointer {
+                    let selected_index = self.pointer_tool.borrow().selected_index();
+                    if let Some(index) = selected_index
+                        && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
+                    {
+                        drawable.set_size(size);
+                        self.renderer.replace_drawable(index, drawable);
+
+                        self.renderer.schedule_refresh_selection_after_render(index);
+
+                        result = ToolUpdateResult::Redraw;
+                    }
+                }
+
+                result
             }
             ToolbarEvent::SaveFile => self.handle_action(&[Action::SaveToFile]),
             ToolbarEvent::CopyClipboard => self.handle_action(&[Action::SaveToClipboard]),
@@ -867,9 +1152,27 @@ impl SketchBoard {
             ToolbarEvent::Reset => self.handle_reset(),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
-                self.active_tool
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SetFill(self.style.fill));
+                let mut result = self
+                    .active_tool
                     .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+
+                if self.active_tool_type() == Tools::Pointer {
+                    let selected_index = self.pointer_tool.borrow().selected_index();
+                    if let Some(index) = selected_index
+                        && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
+                    {
+                        drawable.set_fill(!drawable.get_fill());
+                        self.renderer.replace_drawable(index, drawable);
+                        self.update_pointer_tool_selection(index);
+                        result = ToolUpdateResult::Redraw;
+                    }
+                }
+
+                result
             }
             ToolbarEvent::AnnotationSizeFactorChanged(value) => {
                 self.style.annotation_size_factor = value;
@@ -877,14 +1180,21 @@ impl SketchBoard {
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style))
             }
+            ToolbarEvent::SetFill(fill_enabled) => {
+                self.style.fill = fill_enabled;
+                self.active_tool
+                    .borrow_mut()
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+                ToolUpdateResult::Redraw
+            }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::Resize => self.handle_resize(),
             ToolbarEvent::OriginalScale => self.handle_original_scale(),
-            /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::DimensionsUpdate(Some(dimensions)));
-                ToolUpdateResult::Unmodified
+            /* ToolbarEvent::CropDimensionsUpdated(dimensions) => {
+               sender
+                   .output_sender()
+                   .emit(SketchBoardOutput::DimensionsUpdate(Some(dimensions)));
+               ToolUpdateResult::Unmodified
             }*/
         }
     }
@@ -910,28 +1220,6 @@ impl SketchBoard {
                     sender.input(SketchBoardInput::new_text_event(TextEventMsg::Commit(
                         txt.to_string(),
                     )));
-                } else if let Some(tool) = txt
-                    .chars()
-                    .next()
-                    .and_then(|char| APP_CONFIG.read().keybinds().get_tool(char))
-                {
-                    sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::ToolSelected(
-                        tool,
-                    )));
-                    sender
-                        .output_sender()
-                        .emit(SketchBoardOutput::ToolSwitchShortcut(tool));
-                } else if let Some(hotkey_digit) =
-                    txt.chars().next().and_then(|char| char.to_digit(10))
-                {
-                    let index_digit = if hotkey_digit == 0 {
-                        9
-                    } else {
-                        hotkey_digit - 1
-                    };
-                    sender
-                        .output_sender()
-                        .emit(SketchBoardOutput::ColorSwitchShortcut(index_digit as u64));
                 }
             }
             TextEventMsg::Preedit {
@@ -962,6 +1250,130 @@ impl SketchBoard {
 
     pub fn active_tool_type(&self) -> Tools {
         self.active_tool.borrow().get_tool_type()
+    }
+
+    fn dispatch_key_shortcut_command(
+        &mut self,
+        command: ShortcutCommand,
+        sender: ComponentSender<Self>,
+        active_tool_result: ToolUpdateResult,
+    ) -> ToolUpdateResult {
+        match command {
+            ShortcutCommand::SelectTool(tool) => {
+                sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::ToolSelected(
+                    tool,
+                )));
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ToolSwitchShortcut(tool));
+                ToolUpdateResult::RedrawAndStopPropagation
+            }
+            ShortcutCommand::SelectColorIndex(index) => {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ColorSwitchShortcut(index));
+                ToolUpdateResult::Unmodified
+            }
+            ShortcutCommand::SelectSize(size) => {
+                sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::SizeSelected(
+                    size,
+                )));
+                ToolUpdateResult::Unmodified
+            }
+            ShortcutCommand::CycleSize => {
+                self.style.size = match self.style.size {
+                    Size::Small => Size::Large,
+                    Size::Medium => Size::Small,
+                    Size::Large => Size::Medium,
+                };
+                sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::SizeSelected(
+                    self.style.size,
+                )));
+                ToolUpdateResult::Unmodified
+            }
+            ShortcutCommand::FocusAnnotationSizeFactor => {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::FocusAnnotationSizeFactorShortcut);
+                ToolUpdateResult::Unmodified
+            }
+            ShortcutCommand::ToggleFill => {
+                sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::ToggleFill));
+                ToolUpdateResult::Unmodified
+            }
+            ShortcutCommand::Undo => self.handle_undo(),
+            ShortcutCommand::Redo => self.handle_redo(),
+            ShortcutCommand::ToggleToolbars => self.handle_toggle_toolbars_display(sender),
+            ShortcutCommand::RunAction(action) => {
+                self.renderer.request_render(&[action]);
+                ToolUpdateResult::Unmodified
+            }
+            ShortcutCommand::OpenGtkInspector => {
+                gtk::Window::set_interactive_debugging(true);
+                ToolUpdateResult::Unmodified
+            }
+            ShortcutCommand::PanLeft
+            | ShortcutCommand::PanRight
+            | ShortcutCommand::PanUp
+            | ShortcutCommand::PanDown => {
+                let pan_step_size = APP_CONFIG.read().pan_step_size();
+                let (x, y) = match command {
+                    ShortcutCommand::PanLeft => (-pan_step_size, 0.),
+                    ShortcutCommand::PanRight => (pan_step_size, 0.),
+                    ShortcutCommand::PanUp => (0., -pan_step_size),
+                    ShortcutCommand::PanDown => (0., pan_step_size),
+                    _ => (0., 0.),
+                };
+                self.renderer.set_drag_offset(Vec2D::new(x, y));
+                self.renderer.store_last_offset();
+                self.renderer.request_render(&[]);
+                ToolUpdateResult::Unmodified
+            }
+            ShortcutCommand::Zoom(step_count) => {
+                if step_count != 0 {
+                    let zoom_factor = APP_CONFIG.read().zoom_factor();
+                    let scale = if step_count > 0 {
+                        zoom_factor.powi(step_count as i32)
+                    } else {
+                        (1.0 / zoom_factor).powi((-step_count) as i32)
+                    };
+                    self.renderer.set_pointer_offset_center();
+                    self.renderer.set_zoom_scale(scale);
+                    self.renderer.request_render(&[]);
+                }
+                ToolUpdateResult::Unmodified
+            }
+            ShortcutCommand::OriginalScale => self.handle_original_scale(),
+            ShortcutCommand::FitToWindow => self.handle_resize(),
+            ShortcutCommand::DeleteSelection => {
+                let pointer_selection = self.pointer_tool.borrow().selected_index();
+                if let Some(idx) = pointer_selection {
+                    self.pointer_tool.borrow_mut().deselect();
+                    self.renderer.set_hidden_drawable_index(None);
+                    self.renderer.remove_drawable(idx);
+                    ToolUpdateResult::Redraw
+                } else {
+                    ToolUpdateResult::Unmodified
+                }
+            }
+            ShortcutCommand::ResetAll => self.handle_reset(),
+            ShortcutCommand::RunConfiguredActions(trigger) => {
+                if let ToolUpdateResult::Unmodified = active_tool_result {
+                    let actions = match trigger {
+                        ActionTrigger::Escape => APP_CONFIG.read().actions_on_escape(),
+                        ActionTrigger::Enter => APP_CONFIG.read().actions_on_enter(),
+                    };
+                    self.renderer.request_render(&actions);
+                }
+                active_tool_result
+            }
+        }
+    }
+
+    fn update_pointer_tool_selection(&mut self, index: usize) {
+        if let Some(bounds) = self.renderer.get_drawable_bounds(index) {
+            self.pointer_tool.borrow_mut().set_selection(index, bounds);
+        }
     }
 }
 
@@ -1076,8 +1488,12 @@ impl Component for SketchBoard {
                 },
 
                 add_controller = gtk::EventControllerKey {
-                    connect_key_pressed[sender] => move |controller, key, code, modifier | {
-                        if let Some(im_context) = controller.im_context() {
+                    connect_key_pressed[
+                        sender,
+                        im_context = model.im_context.clone(),
+                        ime_enabled = model.ime_enabled.clone()] => move |controller, key, code, modifier | {
+                        // for text tool we propagate to IME
+                        if ime_enabled.get() {
                             im_context.focus_in();
                             if !im_context.filter_keypress(controller.current_event().unwrap()) {
                                 sender.input(SketchBoardInput::new_key_event(KeyEventMsg::new(key, code, modifier)));
@@ -1098,7 +1514,6 @@ impl Component for SketchBoard {
                             sender.input(SketchBoardInput::new_key_release_event(KeyEventMsg::new(key, code, modifier)));
                         }
                     },
-                    set_im_context: Some(&model.im_context),
                 },
 
                 add_controller = gtk::EventControllerMotion {
@@ -1118,149 +1533,84 @@ impl Component for SketchBoard {
     }
 
     fn update(&mut self, msg: SketchBoardInput, sender: ComponentSender<Self>, _root: &Self::Root) {
+        let sender_for_post_commit = sender.clone();
+
+        let ime_should_be_enabled =
+            self.active_tool_type() == Tools::Text && self.active_tool.borrow().input_enabled();
+
+        if !self.ime_enabled.get() && ime_should_be_enabled {
+            self.ime_enabled.set(true);
+        } else if self.ime_enabled.get() && !ime_should_be_enabled {
+            self.ime_enabled.set(false);
+            self.im_context.focus_out();
+        }
+
         // handle resize ourselves, pass everything else to tool
         let sender_clone = sender.clone();
         let result = match msg {
             SketchBoardInput::InputEvent(mut ie) => {
+                if matches!(ie, InputEvent::Mouse(_)) {
+                    // changes pos to local coords
+                    ie.handle_event_mouse_input(&self.renderer);
+                    // handle right click and other things
+                    ie.handle_mouse_event(&self.renderer);
+                }
+
                 if let InputEvent::Key(ke) = ie {
                     let active_tool_result = self
                         .active_tool
                         .borrow_mut()
                         .handle_event(ToolEvent::Input(ie.clone()));
 
-                    // eprintln!("active_tool_result={:?}", active_tool_result);
-
                     match active_tool_result {
                         ToolUpdateResult::StopPropagation
                         | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
-                        _ => {
-                            if ke.key == Key::y && ke.modifier == ModifierType::CONTROL_MASK {
-                                self.handle_redo()
-                            } else if ke.is_one_of(Key::z, KeyMappingId::UsZ)
-                                && ke.modifier == ModifierType::CONTROL_MASK
+                        ToolUpdateResult::Unmodified => {
+                            if let Some(command) =
+                                self.shortcut_registry.get_command_for_key_event(&ke)
                             {
-                                self.handle_undo()
-                            } else if ke.is_one_of(Key::y, KeyMappingId::UsY)
-                                && ke.modifier == ModifierType::CONTROL_MASK
-                            {
-                                self.handle_redo()
-                            } else if ke.is_one_of(Key::t, KeyMappingId::UsT)
-                                && ke.modifier == ModifierType::CONTROL_MASK
-                            {
-                                self.handle_toggle_toolbars_display(sender)
-                            } else if ke.is_one_of(Key::s, KeyMappingId::UsS)
-                                && ke.modifier == ModifierType::CONTROL_MASK
-                            {
-                                self.renderer.request_render(&[Action::SaveToFile]);
-                                ToolUpdateResult::Unmodified
-                            } else if ke.is_one_of(Key::s, KeyMappingId::UsS)
-                                && ke.modifier
-                                    == (ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK)
-                            {
-                                self.renderer.request_render(&[Action::SaveToFileAs]);
-                                ToolUpdateResult::Unmodified
-                            } else if ke.is_one_of(Key::c, KeyMappingId::UsC)
-                                && ke.modifier == ModifierType::CONTROL_MASK
-                            {
-                                self.renderer.request_render(&[Action::SaveToClipboard]);
-                                ToolUpdateResult::Unmodified
-                            } else if ke.is_one_of(Key::c, KeyMappingId::UsC)
-                                && ke.modifier
-                                    == (ModifierType::CONTROL_MASK | ModifierType::ALT_MASK)
-                            {
-                                self.renderer
-                                    .request_render(&[Action::CopyFilepathToClipboard]);
-                                ToolUpdateResult::Unmodified
-                            } else if (ke.is_one_of(Key::d, KeyMappingId::UsD)
-                                || ke.is_one_of(Key::i, KeyMappingId::UsI))
-                                && ke.modifier
-                                    == (ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK)
-                            {
-                                /* GTK does not appear to offer any tracking for this, so
-                                we'd have to track the state ourselves. But since the user may
-                                just choose to close the inspector window, doing so adds little
-                                benefit.
-
-                                Just enable it everytime, and let the user close the window if they
-                                so wish.
-                                 */
-                                gtk::Window::set_interactive_debugging(true);
-                                ToolUpdateResult::Unmodified
-                            } else if (ke.is_one_of(Key::leftarrow, KeyMappingId::ArrowLeft)
-                                || ke.is_one_of(Key::rightarrow, KeyMappingId::ArrowRight)
-                                || ke.is_one_of(Key::uparrow, KeyMappingId::ArrowUp)
-                                || ke.is_one_of(Key::downarrow, KeyMappingId::ArrowDown))
-                                && ke.modifier == ModifierType::ALT_MASK
-                            {
-                                let pan_step_size = APP_CONFIG.read().pan_step_size();
-                                match ke.key {
-                                    Key::Left => self
-                                        .renderer
-                                        .set_drag_offset(Vec2D::new(-pan_step_size, 0.)),
-                                    Key::Right => {
-                                        self.renderer.set_drag_offset(Vec2D::new(pan_step_size, 0.))
-                                    }
-                                    Key::Up => self
-                                        .renderer
-                                        .set_drag_offset(Vec2D::new(0., -pan_step_size)),
-                                    Key::Down => {
-                                        self.renderer.set_drag_offset(Vec2D::new(0., pan_step_size))
-                                    }
-                                    _ => { /* unreachable */ }
-                                }
-
-                                self.renderer.store_last_offset();
-                                self.renderer.request_render(&[]);
-                                ToolUpdateResult::Unmodified
-                            } else if ke.modifier.is_empty() && ke.key == Key::Delete {
-                                self.handle_reset()
-                            } else if ke.modifier.is_empty()
-                                && (ke.key == Key::Escape
-                                    || ke.key == Key::Return
-                                    || ke.key == Key::KP_Enter)
-                            {
-                                // First, let the tool handle the event. If the tool does nothing, we can do our thing (otherwise require a second keyboard press)
-                                // Relying on ToolUpdateResult::Unmodified is probably not a good idea, but it's the only way at the moment. See discussion in #144
-                                if let ToolUpdateResult::Unmodified = active_tool_result {
-                                    let actions = if ke.key == Key::Escape {
-                                        APP_CONFIG.read().actions_on_escape()
-                                    } else {
-                                        APP_CONFIG.read().actions_on_enter()
-                                    };
-                                    self.renderer.request_render(&actions);
-                                };
-                                active_tool_result
+                                self.dispatch_key_shortcut_command(
+                                    command,
+                                    sender,
+                                    active_tool_result,
+                                )
                             } else {
                                 active_tool_result
                             }
                         }
+                        _ => active_tool_result,
                     }
-                } else {
-                    if let InputEvent::Mouse(me) = &ie
-                        && matches!(me.type_, MouseEventType::Click | MouseEventType::BeginDrag)
-                    {
+                } else if let InputEvent::Mouse(me) = ie {
+                    if matches!(me.type_, MouseEventType::Click | MouseEventType::BeginDrag) {
                         self.renderer.grab_focus();
                     }
-
+                    self.handle_pointer_tool_click(&me, &sender.clone())
+                } else {
                     ie.handle_event_mouse_input(&self.renderer);
-                    let active_tool_result = self
-                        .active_tool
+
+                    // other things like input for text tool
+                    self.active_tool
                         .borrow_mut()
-                        .handle_event(ToolEvent::Input(ie.clone()));
-
-                    // eprintln!("active_tool_result={:?}", active_tool_result);
-
-                    match active_tool_result {
-                        ToolUpdateResult::StopPropagation
-                        | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
-                        _ => {
-                            if let Some(result) = ie.handle_mouse_event(&self.renderer) {
-                                result
-                            } else {
-                                active_tool_result
-                            }
+                        .handle_event(ToolEvent::Input(ie.clone()))
+                }
+            }
+            SketchBoardInput::NudgeSelection(delta) => {
+                let selected_index = self.pointer_tool.borrow().selected_index();
+                if let Some(index) = selected_index {
+                    if let Some(mut drawable) = self.renderer.get_drawable_clone(index) {
+                        drawable.translate(delta);
+                        self.renderer.replace_drawable(index, drawable);
+                        if let Some(new_bounds) = self.renderer.get_drawable_bounds(index) {
+                            self.pointer_tool
+                                .borrow_mut()
+                                .set_selection(index, new_bounds);
                         }
+                        ToolUpdateResult::Redraw
+                    } else {
+                        ToolUpdateResult::Unmodified
                     }
+                } else {
+                    ToolUpdateResult::Unmodified
                 }
             }
             SketchBoardInput::PinchStart => {
@@ -1282,6 +1632,10 @@ impl Component for SketchBoard {
             SketchBoardInput::PinchEnd => {
                 self.pinch_last_scale = 1.0;
                 ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::RefreshSelectionBounds(index) => {
+                self.update_pointer_tool_selection(index);
+                ToolUpdateResult::Redraw
             }
             SketchBoardInput::ToolbarEvent(toolbar_event) => {
                 self.handle_toolbar_event(toolbar_event, sender)
@@ -1330,6 +1684,22 @@ impl Component for SketchBoard {
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
                 }
+
+                if self.return_to_pointer_after_text_commit
+                    && self.active_tool_type() == Tools::Text
+                {
+                    self.return_to_pointer_after_text_commit = false;
+                    let _ = self.handle_toolbar_event(
+                        ToolbarEvent::ToolSelected(Tools::Pointer),
+                        sender_for_post_commit,
+                    );
+                }
+
+                self.refresh_screen();
+            }
+            ToolUpdateResult::ReplaceDrawable(index, drawable) => {
+                self.renderer.replace_drawable(index, drawable);
+                self.update_pointer_tool_selection(index);
                 self.refresh_screen();
             }
             ToolUpdateResult::Unmodified | ToolUpdateResult::StopPropagation => (),
@@ -1349,12 +1719,25 @@ impl Component for SketchBoard {
 
         let im_context = gtk::IMMulticontext::new();
 
+        let pointer_tool = tools.get_pointer_tool();
+
+        let text_tool = tools.get_text_tool();
+
+        let initial_ime_enabled =
+            config.initial_tool() == Tools::Text && text_tool.borrow().input_enabled();
+
         let mut model = Self {
             renderer: FemtoVGArea::default(),
+            ime_enabled: Rc::new(Cell::new(initial_ime_enabled)),
+            shortcut_registry: ShortcutRegistry::from_config(),
             active_tool: tools.get(&config.initial_tool()),
             tool_edit_mode: false,
             style: Style::default(),
             pinch_last_scale: 1.0,
+            pointer_tool,
+            text_tool,
+            return_to_pointer_after_text_commit: false,
+            temporary_pointer_previous_tool: None,
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),
@@ -1448,17 +1831,6 @@ impl KeyEventMsg {
             code,
             modifier,
         }
-    }
-
-    /// Matches one of providen keys. The modifier is not considered.
-    /// And the key has more priority over keycode.
-    fn is_one_of(&self, key: Key, code: KeyMappingId) -> bool {
-        // INFO: on linux the keycode from gtk4 is evdev keycode, so need to match by him if need
-        // to use layout-independent shortcuts. And notice that there is subtraction by 8, it's
-        // because of x11 compatibility in which the keycodes are in range [8,255]. So need shift
-        // them to get correct evdev keycode.
-        let keymap = KeyMap::from(code);
-        self.key == key || self.code as u16 - 8 == keymap.evdev
     }
 }
 

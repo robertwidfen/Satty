@@ -61,11 +61,15 @@ right-click-copy = false
 no-window-decoration = true
 # experimental feature: adjust history size for brush input smoothing (0: disabled, default: 0, try e.g. 5 or 10)
 brush-smooth-history-size = 10
-# experimental feature (0.20.1): The pan step size to use when panning with arrow keys.
-pan-step-size = 50.0
 # experimental feature (0.20.1): The zoom factor to use for the image.
 # 1.0 means no zooming.
 zoom-factor = 1.1
+# touchpad zoom factor
+zoom-touchpad-factor = 1.05
+# experimental feature (0.20.1): The pan step size to use when panning with arrow keys.
+pan-step-size = 50.0
+# touchpad pan step size - negative value will invert the direction for natural scrolling
+pan-touchpad-step-size = -2.0
 # experimental feature (0.20.1): The length to move the text when using arrow keys. defaults to 50.0
 text-move-length = 50.0
 # experimental feature (0.20.1): Scale factor on the input image when it was taken (e.g. DPI scale on the monitor it was recorded from).
@@ -77,19 +81,60 @@ title = "Satty"
 # experimental feature (0.21.0): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
 app-id = "org.satty.satty"
 
-# Tool selection keyboard shortcuts (since 0.20.0)
+# Generic keyboard shortcuts (NEXTRELEASE)
 [keybinds]
-pointer = "p"
-crop = "c"
-brush = "b"
-line = "i"
-arrow = "z"
-rectangle = "r"
-ellipse = "e"
-text = "t"
-marker = "m"
-blur = "u"
-highlight = "g"
+# "<Control>q" = "run-actions-on-escape" # additionally to Escape
+# "i" = "none" # unbind "i" default for line
+# "l" = "line"
+
+# Global
+"<Shift><Control>d" = "open-gtk-inspector"
+"<Shift><Control>i" = "open-gtk-inspector"
+"<Alt>Left" = "pan-left"
+"<Alt>Right" = "pan-right"
+"<Alt>Up" = "pan-up"
+"<Alt>Down" = "pan-down"
+"Delete" = "delete-selection"
+"Escape" = "run-actions-on-escape"
+"Return" = "run-actions-on-enter"
+"<Control>t" = "toggle-toolbars"
+
+# top toolbar
+"<Control>1" = "original-scale"
+"<Control>2" = "fit-to-window"
+"<Shift>Delete" = "reset-all"
+"<Control>z" = "undo"
+"<Control>y" = "redo"
+"p" = "pointer"
+"c" = "crop"
+"b" = "brush"
+"i" = "line"
+"z" = "arrow"
+"r" = "rectangle"
+"e" = "ellipse"
+"t" = "text"
+"m" = "marker"
+"u" = "blur"
+"g" = "highlight"
+"<Control>s" = "save-to-file"
+"<Shift><Control>s" = "save-to-file-as"
+"<Control>c" = "save-to-clipboard"
+"<Shift><Control>c" = "copy-filepath-to-clipboard"
+
+# bottom toolbar
+"1" = "select-color-index:1"
+"2" = "select-color-index:2"
+"3" = "select-color-index:3"
+"4" = "select-color-index:4"
+"5" = "select-color-index:5"
+"6" = "select-color-index:6"
+"7" = "select-color-index:7"
+"8" = "select-color-index:8"
+"9" = "select-color-index:9"
+"minus" = "cycle-size"
+#"..." = "select-size:(small|medium|large)"
+"s" = "focus-annotation-size-factor"
+"f" = "toggle-fill"
 
 # Font to use for text annotations
 [font]
@@ -113,6 +158,7 @@ fallback = [
 
 # Custom colours for the colour palette
 [color-palette]
+
 # These will be shown in the toolbar for quick selection
 palette = [
     # RRGGBBAA format, where AA is the alpha channel 

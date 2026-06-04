@@ -1,17 +1,15 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::{Sender, gtk::gdk::Key};
+use relm4::Sender;
 
 use crate::{
     math::Vec2D,
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
+    tools::drag_box::DragBox,
 };
 
-use super::{
-    Drawable, DrawableClone, Tool, ToolUpdateResult, Tools,
-    drag_box::{DragBox, draw_center_marker},
-};
+use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Ellipse {
@@ -24,6 +22,70 @@ pub struct Ellipse {
 }
 
 impl Drawable for Ellipse {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let radii = self.radii?.abs();
+        Some((self.middle - radii, self.middle + radii))
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        let Some(radii) = self.radii else {
+            return false;
+        };
+
+        let d = (pos - self.middle) / (radii + tolerance);
+        if d * d > 1.0 {
+            // outside the outer tolerance
+            return false;
+        }
+
+        // FIXME allow hit only on border? Eases handling of overlapping annoatations
+        if self.style.fill {
+            // if filled, only check the outer tolerance
+            return true;
+        }
+        let inner_d = (pos - self.middle) / (radii - tolerance);
+        // outside the inner tolerance
+        inner_d * inner_d > 1.0
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.middle += delta;
+        self.origin += delta;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let center = (tl + br) / 2.0;
+        self.middle = center;
+        self.origin = center;
+        self.radii = Some((br - tl).abs() / 2.0);
+        self.centered = false;
+        self.finishing = true;
+    }
+
+    fn set_color(&mut self, color: crate::style::Color) {
+        self.style.color = color;
+    }
+
+    fn get_color(&self) -> Option<crate::style::Color> {
+        Some(self.style.color)
+    }
+
+    fn get_fill(&self) -> bool {
+        self.style.fill
+    }
+
+    fn set_fill(&mut self, fill: bool) {
+        self.style.fill = fill;
+    }
+
+    fn get_size(&self) -> Option<crate::style::Size> {
+        Some(self.style.size)
+    }
+
+    fn set_size(&mut self, size: crate::style::Size) {
+        self.style.size = size;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -39,15 +101,24 @@ impl Drawable for Ellipse {
         let mut path = Path::new();
         path.ellipse(self.middle.x, self.middle.y, radii.x, radii.y);
 
-        if !self.finishing && self.centered {
-            draw_center_marker(canvas, self.middle);
+        if !self.finishing {
+            let mut helpers = Path::new();
+            if self.centered {
+                helpers.circle(self.middle.x, self.middle.y, 2.0);
+            } else {
+                helpers.rect(self.origin.x, self.origin.y, radii.x * 2.0, radii.y * 2.0);
+            }
+            canvas.stroke_path(
+                &helpers,
+                &femtovg::Paint::color(femtovg::Color::rgba(128, 128, 128, 255))
+                    .with_line_width(2.0), //TODO: hardcoding this is no good if we use this in more places
+            );
         }
 
         if self.style.fill {
             canvas.fill_path(&path, &self.style.into());
-        } else {
-            canvas.stroke_path(&path, &self.style.into());
         }
+        canvas.stroke_path(&path, &self.style.into());
         canvas.restore();
 
         Ok(())
@@ -59,7 +130,7 @@ impl Ellipse {
         let drag_box = DragBox::from_origin_delta(self.origin, event.pos, event.modifier);
         self.centered = drag_box.centered;
         self.middle = drag_box.middle();
-        self.radii = Some(drag_box.size * 0.5);
+        self.radii = Some(drag_box.size.abs() * 0.5);
     }
 }
 
@@ -144,15 +215,6 @@ impl Tool for EllipseTool {
                 }
             }
             _ => ToolUpdateResult::Unmodified,
-        }
-    }
-
-    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.ellipse.is_some() {
-            self.ellipse = None;
-            ToolUpdateResult::Redraw
-        } else {
-            ToolUpdateResult::Unmodified
         }
     }
 

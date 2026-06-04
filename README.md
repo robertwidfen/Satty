@@ -41,9 +41,10 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 
 ### Shortcuts
 
+#### General
 - <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard (may be masked by active tool)
 - <kbd>Esc</kbd>: as configured (see below), default: exit (may be masked by active tool)
-- <kbd>Delete</kbd> reset (clear) <sup>experimental</sup> <sup>0.20.1</sup>
+- <kbd>Shift+Delete</kbd> reset (clear) <sup>experimental</sup> <sup>NEXTRELEASE</sup>
 - <kbd>Ctrl+C</kbd>: Save to clipboard (may be masked by active tool)
 - <kbd>Ctrl+Shift+D</kbd> or <kbd>Ctrl+Shift+I</kbd>: Open GTK inspector if not already opened
 - <kbd>Ctrl+S</kbd>: Save to specified output file
@@ -80,7 +81,8 @@ The bindings are:
 - Holding <kbd>Ctrl</kbd> will switch to 1.0 step size
 - Mouse <kbd>middle-button</kbd> and <kbd>page up</kbd>/<kbd>page down</kbd> step size is 1.0
 - Mouse <kbd>right-button</kbd> jumps to minimum/maximum
-
+- <kbd>s</kbd> focuses the annotation size factor input field
+ 
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 Default single-key shortcuts:
 - <kbd>p</kbd>: Pointer tool
@@ -97,39 +99,55 @@ Default single-key shortcuts:
 
 ### Tool Modifiers and Keys
 
-Crop:
-- Press <kbd>Esc</kbd> or right mouse button while editing to reset crop altogether <sup>0.21.0</sup>.
-- Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>0.21.0</sup>.
-- Left click crop area when tool is active but not editing to resume editing<sup>0.21.0</sup>.
+ Crop:
+ - Press <kbd>Delete</kbd> <sup>NEXTRELEASE</sup> or right mouse button while editing to reset crop altogether <sup>0.21.0</sup>.
+ - Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>0.21.0</sup>.
+ - Left click crop area when tool is active but not editing to resume editing<sup>0.21.0</sup>.
+ 
+ Arrow and line:
+ - <kbd>Shift</kbd> to make tool snap to 15° steps.
+ 
+ Rectangle, ellipse, blur <sup>NEXTRELEASE</sup> and highlight block mode<sup>NEXTRELEASE</sup>: 
+ - <kbd>Alt</kbd> to center the tool around origin.
+ - <kbd>Shift</kbd> to make width and high uniform - results in square resp. circle.
+ - Hold both to combine them.
+ 
+ Text:
+ - Press <kbd>Shift+Enter</kbd> to insert line break.
+ - Combine <kbd>Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> for word jump or <kbd>Ctrl</kbd> with <kbd>Backspace</kbd> or <kbd>Delete</kbd> for word delete.
+ - Press <kbd>Enter</kbd> or switch to another tool to accept input, press <kbd>Escape</kbd> to discard entered text.
+ - <kbd>Home</kbd> and <kbd>End</kbd> go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). <kbd>Ctrl</kbd> with <kbd>Home</kbd>/<kbd>End</kbd> jumps to start/end of text buffer.
+ - <kbd>Up</kbd> or <kbd>Down</kbd> to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer). <sup>0.20.1</sup>
+ - Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor,  <kbd>Shift+Left</kbd> to select characters before cursor,  <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>0.20.1</sup>
+ - <kbd>Double-click </kbd> to select word under cursor.Triple-click to select all text. <sup>0.20.1</sup>
+ - <kbd>Ctrl+A</kbd> to select all text. <sup>0.20.1</sup>
+ - <kbd>Ctrl+C</kbd> to copy selected text to clipboard. <sup>0.20.1</sup>
+ - <kbd>Ctrl+X</kbd> to cut selected text to clipboard. <sup>0.20.1</sup>
+ - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
+ - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
+ 
+ Marker:
+ - Hold <kbd>Alt</kbd> to get extra ring. <sup>NEXTRELEASE</sup>
+ 
+ Highlight: 
+ - Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
+ - Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
 
-Arrow and line:
-- <kbd>Shift</kbd> to make tool snap to 15° steps.
+#### Overwriting Keybindings (since NEXTRELEASE)
 
-Rectangle, ellipse, blur <sup>NEXTRELEASE</sup> and highlight block mode<sup>NEXTRELEASE</sup>: 
-- <kbd>Alt</kbd> to center the tool around origin.
-- <kbd>Shift</kbd> to make width and high uniform - results in square resp. circle.
-- Hold both to combine them.
+Shortcuts can be overwritten in the config by 
+```toml
+[keybinds]
+"BINDING" = "TOOL-OR-COMMAND"
+```
 
-Text:
-- Press <kbd>Shift+Enter</kbd> to insert line break.
-- Combine <kbd>Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> for word jump or <kbd>Ctrl</kbd> with <kbd>Backspace</kbd> or <kbd>Delete</kbd> for word delete.
-- Press <kbd>Enter</kbd> or switch to another tool to accept input, press <kbd>Escape</kbd> to discard entered text.
-- <kbd>Home</kbd> and <kbd>End</kbd> go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). <kbd>Ctrl</kbd> with <kbd>Home</kbd>/<kbd>End</kbd> jumps to start/end of text buffer.
-- <kbd>Up</kbd> or <kbd>Down</kbd> to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer). <sup>0.20.1</sup>
-- Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor,  <kbd>Shift+Left</kbd> to select characters before cursor,  <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>0.20.1</sup>
-- <kbd>Double-click </kbd> to select word under cursor.Triple-click to select all text. <sup>0.20.1</sup>
-- <kbd>Ctrl+A</kbd> to select all text. <sup>0.20.1</sup>
-- <kbd>Ctrl+C</kbd> to copy selected text to clipboard. <sup>0.20.1</sup>
-- <kbd>Ctrl+X</kbd> to cut selected text to clipboard. <sup>0.20.1</sup>
-- <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
-- <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
+Where `BINDING` follows the GTK syntax. This means modifiers are enclosed in angle brackets (e.g., `<mod>`) and keys are specified by name (for example, `-` must be written as `minus`). 
 
-Marker:
-- Hold <kbd>Alt</kbd> to get extra ring. <sup>NEXTRELEASE</sup>
+Pressing any unbound key will print its name to the console.
 
-Highlight: 
-- Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
-- Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
+Setting a binding to `"none"` will unbind it.
+
+The defaults are listed in the `config.toml`.
 
 ### Configuration File
 
@@ -214,19 +232,60 @@ title = "Satty"
 # experimental feature (0.21.0): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
 app-id = "org.satty.satty"
 
-# Tool selection keyboard shortcuts (since 0.20.0)
+# Generic keyboard shortcuts (NEXTRELEASE)
 [keybinds]
-pointer = "p"
-crop = "c"
-brush = "b"
-line = "i"
-arrow = "z"
-rectangle = "r"
-ellipse = "e"
-text = "t"
-marker = "m"
-blur = "u"
-highlight = "g"
+# "<Control>q" = "run-actions-on-escape" # additionally to Escape
+# "i" = "none" # unbind "i" default for line
+# "l" = "line"
+
+# Global
+"<Shift><Control>d" = "open-gtk-inspector"
+"<Shift><Control>i" = "open-gtk-inspector"
+"<Alt>Left" = "pan-left"
+"<Alt>Right" = "pan-right"
+"<Alt>Up" = "pan-up"
+"<Alt>Down" = "pan-down"
+"Delete" = "delete-selection"
+"Escape" = "run-actions-on-escape"
+"Return" = "run-actions-on-enter"
+"<Control>t" = "toggle-toolbars"
+
+# top toolbar
+"<Control>1" = "original-scale"
+"<Control>2" = "fit-to-window"
+"<Shift>Delete" = "reset-all"
+"<Control>z" = "undo"
+"<Control>y" = "redo"
+"p" = "pointer"
+"c" = "crop"
+"b" = "brush"
+"i" = "line"
+"z" = "arrow"
+"r" = "rectangle"
+"e" = "ellipse"
+"t" = "text"
+"m" = "marker"
+"u" = "blur"
+"g" = "highlight"
+"<Control>s" = "save-to-file"
+"<Shift><Control>s" = "save-to-file-as"
+"<Control>c" = "save-to-clipboard"
+"<Shift><Control>c" = "copy-filepath-to-clipboard"
+
+# bottom toolbar
+"1" = "select-color-index:1"
+"2" = "select-color-index:2"
+"3" = "select-color-index:3"
+"4" = "select-color-index:4"
+"5" = "select-color-index:5"
+"6" = "select-color-index:6"
+"7" = "select-color-index:7"
+"8" = "select-color-index:8"
+"9" = "select-color-index:9"
+"minus" = "cycle-size"
+#"..." = "select-size:(small|medium|large)"
+"s" = "focus-annotation-size-factor"
+"f" = "toggle-fill"
 
 # Font to use for text annotations
 [font]
@@ -271,6 +330,7 @@ custom = [
     # add or remove as needed
 ]
 ```
+
 
 ### Command Line
 

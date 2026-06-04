@@ -1,18 +1,16 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::{Sender, gtk::gdk::Key};
+use relm4::Sender;
 
 use crate::{
     configuration::APP_CONFIG,
-    math::Vec2D,
+    math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
+    tools::hit_test_rectangle,
 };
 
-use super::{
-    Drawable, DrawableClone, Tool, ToolUpdateResult, Tools,
-    drag_box::{DragBox, draw_center_marker},
-};
+use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools, drag_box::DragBox};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Rectangle {
@@ -25,6 +23,55 @@ pub struct Rectangle {
 }
 
 impl Drawable for Rectangle {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let size = self.size?;
+        Some(math::ensure_bounding_box(
+            self.top_left,
+            self.top_left + size,
+        ))
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        hit_test_rectangle(pos, self.top_left, self.size, tolerance, self.style.fill)
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+        self.origin += delta;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        self.top_left = tl;
+        self.size = Some(br - tl);
+        self.origin = tl;
+        self.centered = false;
+        self.finishing = true;
+    }
+
+    fn set_color(&mut self, color: crate::style::Color) {
+        self.style.color = color;
+    }
+
+    fn get_color(&self) -> Option<crate::style::Color> {
+        Some(self.style.color)
+    }
+
+    fn get_fill(&self) -> bool {
+        self.style.fill
+    }
+
+    fn set_fill(&mut self, fill: bool) {
+        self.style.fill = fill;
+    }
+
+    fn get_size(&self) -> Option<crate::style::Size> {
+        Some(self.style.size)
+    }
+
+    fn set_size(&mut self, size: crate::style::Size) {
+        self.style.size = size;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -47,14 +94,18 @@ impl Drawable for Rectangle {
         );
 
         if !self.finishing && self.centered {
-            draw_center_marker(canvas, self.origin);
+            let mut helpers = Path::new();
+            helpers.circle(self.origin.x, self.origin.y, 2.0);
+            canvas.stroke_path(
+                &helpers,
+                &femtovg::Paint::color(femtovg::Color::rgba(128, 128, 128, 255)),
+            );
         }
 
         if self.style.fill {
             canvas.fill_path(&path, &self.style.into());
-        } else {
-            canvas.stroke_path(&path, &self.style.into());
         }
+        canvas.stroke_path(&path, &self.style.into());
         canvas.restore();
 
         Ok(())
@@ -118,7 +169,6 @@ impl Tool for RectangleTool {
                     rectangle.finishing = true;
                     if event.pos == Vec2D::zero() {
                         self.rectangle = None;
-
                         ToolUpdateResult::Redraw
                     } else {
                         rectangle.calculate_shape(&event);
@@ -146,15 +196,6 @@ impl Tool for RectangleTool {
                 }
             }
             _ => ToolUpdateResult::Unmodified,
-        }
-    }
-
-    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.rectangle.is_some() {
-            self.rectangle = None;
-            ToolUpdateResult::Redraw
-        } else {
-            ToolUpdateResult::Unmodified
         }
     }
 
