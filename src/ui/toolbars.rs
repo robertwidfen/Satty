@@ -169,7 +169,6 @@ impl SimpleComponent for ToolsToolbar {
                 set_icon_name: "arrow-redo-filled",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Redo);},
             },
-            gtk::Separator {},
             #[local_ref]
             tools_box -> gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
@@ -293,11 +292,18 @@ impl SimpleComponent for ToolsToolbar {
                 icon_name: "number-circle-1-regular".into(),
                 tooltip: None,
             }],
-            vec![GroupableTool {
-                tool: Tools::Blur,
-                icon_name: "drop-regular".into(),
-                tooltip: None,
-            }],
+            vec![
+                GroupableTool {
+                    tool: Tools::Blur,
+                    icon_name: "drop-regular".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::Pixelate,
+                    icon_name: "tetris-app-regular".into(),
+                    tooltip: None,
+                },
+            ],
             vec![GroupableTool {
                 tool: Tools::Highlight,
                 icon_name: "highlight-regular".into(),
