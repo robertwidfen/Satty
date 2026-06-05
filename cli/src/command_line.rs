@@ -131,16 +131,27 @@ pub struct CommandLine {
     #[arg(long)]
     pub brush_smooth_history_size: Option<usize>,
 
-    /// Experimental feature (0.20.1): The zoom factor to use for the image.
+    /// Experimental feature (0.20.1): The zoom factor to use when zooming with keyboard or mouse wheel.
     /// 1.0 means no zoom.
     /// defaults to 1.1
     #[arg(long)]
     pub zoom_factor: Option<f32>,
 
+    /// Experimental feature (NEXTRELEASE): The zoom factor to use when zooming with touchpad.
+    /// 1.0 means no zoom.
+    /// defaults to 1.05
+    #[arg(long)]
+    pub zoom_touchpad_factor: Option<f32>,
+
     /// Experimental feature (0.20.1): The pan step size to use when panning with arrow keys.
     /// defaults to 50.0
     #[arg(long)]
     pub pan_step_size: Option<f32>,
+
+    /// Experimental feature (NEXTRELEASE): The pan step size to use when panning with touchpad.
+    /// defaults to -2.0
+    #[arg(long)]
+    pub pan_touchpad_step_size: Option<f32>,
 
     /// Experimental feature (0.20.1): The length to move the text when using the arrow keys.
     /// defaults to 50.0

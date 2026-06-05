@@ -235,9 +235,10 @@ impl InputEvent {
 
                 MouseEventType::Scroll => {
                     if me.modifier.contains(ModifierType::CONTROL_MASK) {
-                        let mut factor = APP_CONFIG.read().zoom_factor();
-                        if me.is_touchpad {
-                            factor = 1.0 + (factor - 1.0) / 2.0; // decrease a bit
+                        let factor = if me.is_touchpad {
+                            APP_CONFIG.read().zoom_touchpad_factor()
+                        } else {
+                            APP_CONFIG.read().zoom_factor()
                         };
                         match me.pos.y {
                             v if v < 0.0 => renderer.set_zoom_scale(factor),
@@ -246,7 +247,7 @@ impl InputEvent {
                         }
                     } else {
                         let pan_step_size = if me.is_touchpad {
-                            -2.0 // invert for natural scrolling and decrease a bit
+                            APP_CONFIG.read().pan_touchpad_step_size()
                         } else {
                             APP_CONFIG.read().pan_step_size()
                         };
