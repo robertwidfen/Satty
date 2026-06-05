@@ -69,7 +69,9 @@ pub struct Configuration {
     brush_smooth_history_size: usize,
     keybinds: HashMap<String, String>, // key_binding -> tool_or_command
     zoom_factor: f32,
-    pan_step_size: f32,
+    zoom_touchpad_factor: f32,
+    pan_step_size: f32, // keyboard
+    pan_touchpad_step_size: f32,
     text_move_length: f32,
     input_scale: Option<f32>,
     title: Option<String>,
@@ -341,8 +343,14 @@ impl Configuration {
         if let Some(v) = general.zoom_factor {
             self.zoom_factor = v;
         }
+        if let Some(v) = general.zoom_touchpad_factor {
+            self.zoom_touchpad_factor = v;
+        }
         if let Some(v) = general.pan_step_size {
             self.pan_step_size = v;
+        }
+        if let Some(v) = general.pan_touchpad_step_size {
+            self.pan_touchpad_step_size = v;
         }
         if let Some(v) = general.text_move_length {
             self.text_move_length = v;
@@ -641,8 +649,16 @@ impl Configuration {
         self.zoom_factor
     }
 
+    pub fn zoom_touchpad_factor(&self) -> f32 {
+        self.zoom_touchpad_factor
+    }
+
     pub fn pan_step_size(&self) -> f32 {
         self.pan_step_size
+    }
+
+    pub fn pan_touchpad_step_size(&self) -> f32 {
+        self.pan_touchpad_step_size
     }
 
     pub fn text_move_length(&self) -> f32 {
@@ -699,7 +715,9 @@ impl Default for Configuration {
             brush_smooth_history_size: 0, // default to 0, no history
             keybinds: HashMap::new(),
             zoom_factor: 1.1,
+            zoom_touchpad_factor: 1.05,
             pan_step_size: 50.,
+            pan_touchpad_step_size: -2.0,
             text_move_length: 50.0,
             input_scale: None,
             title: None,
@@ -769,7 +787,9 @@ struct ConfigurationFileGeneral {
     no_window_decoration: Option<bool>,
     brush_smooth_history_size: Option<usize>,
     zoom_factor: Option<f32>,
+    zoom_touchpad_factor: Option<f32>,
     pan_step_size: Option<f32>,
+    pan_touchpad_step_size: Option<f32>,
     text_move_length: Option<f32>,
     input_scale: Option<f32>,
     title: Option<String>,
