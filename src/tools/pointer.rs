@@ -4,7 +4,7 @@ use relm4::{Sender, gtk::gdk::ModifierType};
 
 use crate::{
     math::Vec2D,
-    sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
+    sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
 };
 
 use super::{Drawable, Tool, ToolUpdateResult, Tools};
@@ -401,6 +401,42 @@ impl Tool for PointerTool {
     fn handle_deactivated(&mut self) -> ToolUpdateResult {
         self.deselect();
         ToolUpdateResult::Redraw
+    }
+
+    fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
+        if self.selected_index.is_none() {
+            return ToolUpdateResult::Unmodified;
+        }
+
+        let step = 1.0; //APP_CONFIG.read().text_move_length();
+        let shift_multiplier = if event.modifier.contains(ModifierType::SHIFT_MASK) {
+            10.0
+        } else {
+            1.0
+        };
+        let amount = step * shift_multiplier;
+
+        let delta = match event.key {
+            relm4::gtk::gdk::Key::Left => Vec2D::new(-amount, 0.0),
+            relm4::gtk::gdk::Key::Right => Vec2D::new(amount, 0.0),
+            relm4::gtk::gdk::Key::Up => Vec2D::new(0.0, -amount),
+            relm4::gtk::gdk::Key::Down => Vec2D::new(0.0, amount),
+            _ => return ToolUpdateResult::Unmodified,
+        };
+
+        if event
+            .modifier
+            .intersects(ModifierType::CONTROL_MASK | ModifierType::ALT_MASK)
+        {
+            return ToolUpdateResult::Unmodified;
+        }
+
+        if let Some(sender) = &self.sender {
+            sender.emit(SketchBoardInput::NudgeSelection(delta));
+            ToolUpdateResult::StopPropagation
+        } else {
+            ToolUpdateResult::Unmodified
+        }
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {

@@ -35,6 +35,7 @@ const SAVE_AS_LAST_DIR_MAX_BYTES: u64 = 10_000;
 #[derive(Debug, Clone)]
 pub enum SketchBoardInput {
     InputEvent(InputEvent),
+    NudgeSelection(Vec2D),
     ToolbarEvent(ToolbarEvent),
     RenderResult(RenderedImage, Vec<Action>),
     RenderResultFollowup(Option<Pixbuf>, Vec<Action>, Option<String>),
@@ -1496,6 +1497,25 @@ impl Component for SketchBoard {
                             }
                         }
                     }
+                }
+            }
+            SketchBoardInput::NudgeSelection(delta) => {
+                let selected_index = self.pointer_tool.borrow().selected_index();
+                if let Some(index) = selected_index {
+                    if let Some(mut drawable) = self.renderer.get_drawable_clone(index) {
+                        drawable.translate(delta);
+                        self.renderer.replace_drawable(index, drawable);
+                        if let Some(new_bounds) = self.renderer.get_drawable_bounds(index) {
+                            self.pointer_tool
+                                .borrow_mut()
+                                .set_selection(index, new_bounds);
+                        }
+                        ToolUpdateResult::Redraw
+                    } else {
+                        ToolUpdateResult::Unmodified
+                    }
+                } else {
+                    ToolUpdateResult::Unmodified
                 }
             }
             SketchBoardInput::ToolbarEvent(toolbar_event) => {
