@@ -109,10 +109,16 @@ Modern Screenshot Annotation.
 :   Experimental feature: How many points to use for the brush smoothing algorithm. 0 disables smoothing. The default value is 0 (disabled)
 
 `--zoom-factor <ZOOM_FACTOR>`
-:   Experimental feature (0.20.1): The zoom factor to use for the image. 1.0 means no zoom. defaults to 1.1
+:   Experimental feature (0.20.1): The zoom factor to use when zooming with keyboard or mouse wheel. 1.0 means no zoom. defaults to 1.1
+
+`--zoom-touchpad-factor <ZOOM_TOUCHPAD_FACTOR>`
+:   Experimental feature (NEXTRELEASE): The zoom factor to use when zooming with touchpad. 1.0 means no zoom. defaults to 1.05
 
 `--pan-step-size <PAN_STEP_SIZE>`
 :   Experimental feature (0.20.1): The pan step size to use when panning with arrow keys. defaults to 50.0
+
+`--pan-touchpad-step-size <PAN_TOUCHPAD_STEP_SIZE>`
+:   Experimental feature (NEXTRELEASE): The pan step size to use when panning with touchpad. defaults to -2.0
 
 `--text-move-length <TEXT_MOVE_LENGTH>`
 :   Experimental feature (0.20.1): The length to move the text when using the arrow keys. defaults to 50.0
