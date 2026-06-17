@@ -57,6 +57,7 @@ pub enum SketchBoardOutput {
     ColorSwitchShortcut(u64),
     SetColor(Color),
     SetSize(Size),
+    SetAnnotationSizeFactor(f32),
     FocusAnnotationSizeFactorShortcut,
     SetFill(bool),
     DimensionsUpdate(Option<(i32, i32)>),
@@ -313,6 +314,14 @@ impl SketchBoard {
             sender
                 .output_sender()
                 .emit(SketchBoardOutput::SetSize(self.style.size));
+        }
+        if let Some(annotation_size_factor) = drawable.get_annotation_size_factor() {
+            self.style.annotation_size_factor = annotation_size_factor;
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SetAnnotationSizeFactor(
+                    annotation_size_factor,
+                ));
         }
     }
 
@@ -1136,7 +1145,6 @@ impl SketchBoard {
                     {
                         drawable.set_size(size);
                         self.renderer.replace_drawable(index, drawable);
-
                         self.renderer.schedule_refresh_selection_after_render(index);
 
                         result = ToolUpdateResult::Redraw;
@@ -1176,9 +1184,26 @@ impl SketchBoard {
             }
             ToolbarEvent::AnnotationSizeFactorChanged(value) => {
                 self.style.annotation_size_factor = value;
-                self.active_tool
+                let mut result = self
+                    .active_tool
                     .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+
+                if self.active_tool_type() == Tools::Pointer {
+                    let selected_index = self.pointer_tool.borrow().selected_index();
+                    if let Some(index) = selected_index
+                        && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
+                    {
+                        drawable.set_annotation_size_factor(self.style.annotation_size_factor);
+                        self.renderer.replace_drawable(index, drawable);
+                        self.update_pointer_tool_selection(index);
+                        self.renderer.schedule_refresh_selection_after_render(index);
+
+                        result = ToolUpdateResult::Redraw;
+                    }
+                }
+
+                result
             }
             ToolbarEvent::SetFill(fill_enabled) => {
                 self.style.fill = fill_enabled;

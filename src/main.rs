@@ -74,6 +74,7 @@ enum AppInput {
     SetColor(Color),
     SetFill(bool),
     SetSize(Size),
+    SetAnnotationSizeFactor(f32),
     FocusAnnotationSizeFactorShortcut,
     ScaleFactorChanged,
     FullscreenChanged(bool),
@@ -298,6 +299,11 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::SetSize(size));
             }
+            AppInput::SetAnnotationSizeFactor(factor) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetAnnotationSizeFactor(factor));
+            }
             AppInput::FocusAnnotationSizeFactorShortcut => {
                 self.style_toolbar
                     .sender()
@@ -374,6 +380,9 @@ impl Component for App {
                         AppInput::FocusAnnotationSizeFactorShortcut
                     }
                     SketchBoardOutput::SetFill(fill_enabled) => AppInput::SetFill(fill_enabled),
+                    SketchBoardOutput::SetAnnotationSizeFactor(factor) => {
+                        AppInput::SetAnnotationSizeFactor(factor)
+                    }
                     SketchBoardOutput::DimensionsUpdate(dimensions) => {
                         AppInput::DimensionsUpdate(dimensions)
                     }

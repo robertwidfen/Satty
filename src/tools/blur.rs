@@ -99,6 +99,14 @@ impl Drawable for Blur {
         *self.cached_image.borrow_mut() = None;
     }
 
+    fn set_annotation_size_factor(&mut self, factor: f32) {
+        self.style.annotation_size_factor = factor;
+    }
+
+    fn get_annotation_size_factor(&self) -> Option<f32> {
+        Some(self.style.annotation_size_factor)
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

@@ -73,6 +73,14 @@ impl Drawable for Marker {
         self.style.size = size;
     }
 
+    fn set_annotation_size_factor(&mut self, factor: f32) {
+        self.style.annotation_size_factor = factor;
+    }
+
+    fn get_annotation_size_factor(&self) -> Option<f32> {
+        Some(self.style.annotation_size_factor)
+    }
+
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
         let Some((old_tl, old_br)) = self.bounds() else {
             return;

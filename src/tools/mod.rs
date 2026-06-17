@@ -194,6 +194,14 @@ pub trait Drawable: DrawableClone + Debug {
         None
     }
 
+    /// Updates only the drawable annotation size factor when supported. No-op for unsupported drawables.
+    fn set_annotation_size_factor(&mut self, _factor: f32) {}
+
+    /// Returns the drawable annotation size factor when supported.
+    fn get_annotation_size_factor(&self) -> Option<f32> {
+        None
+    }
+
     /// Updates only the drawable size when supported. No-op for unsupported drawables.
     fn set_size(&mut self, _size: crate::style::Size) {}
 }

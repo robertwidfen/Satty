@@ -165,7 +165,10 @@ impl Drawable for HighlightKind {
         match self {
             HighlightKind::Block(h) => {
                 let size = h.data.size?;
-                Some(math::ensure_bounding_box(h.data.top_left, h.data.top_left + size))
+                Some(math::ensure_bounding_box(
+                    h.data.top_left,
+                    h.data.top_left + size,
+                ))
             }
             HighlightKind::Freehand(h) => {
                 let mut min_x = f32::MAX;
@@ -308,6 +311,20 @@ impl Drawable for HighlightKind {
             HighlightKind::Block(h) => h.style.size = size,
             HighlightKind::Freehand(h) => h.style.size = size,
         }
+    }
+
+    fn set_annotation_size_factor(&mut self, factor: f32) {
+        match self {
+            HighlightKind::Block(h) => h.style.annotation_size_factor = factor,
+            HighlightKind::Freehand(h) => h.style.annotation_size_factor = factor,
+        }
+    }
+
+    fn get_annotation_size_factor(&self) -> Option<f32> {
+        Some(match self {
+            HighlightKind::Block(h) => h.style.annotation_size_factor,
+            HighlightKind::Freehand(h) => h.style.annotation_size_factor,
+        })
     }
 
     fn draw(
