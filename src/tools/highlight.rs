@@ -13,7 +13,7 @@ use crate::{
     configuration::APP_CONFIG,
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
-    style::Style,
+    style::{Size, Style},
     tools::{DrawableClone, hit_test_rectangle},
 };
 
@@ -24,7 +24,13 @@ use super::{
     drag_box::{DragBox, draw_center_marker},
 };
 
-const HIGHLIGHT_OPACITY: f64 = 0.4;
+fn get_highlight_opacity(size: Size) -> f64 {
+    match size {
+        Size::Small => 0.2,
+        Size::Medium => 0.4,
+        Size::Large => 0.8,
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -87,7 +93,7 @@ impl Highlight for Highlighter<FreehandHighlight> {
             self.style.color.r,
             self.style.color.g,
             self.style.color.b,
-            (255.0 * HIGHLIGHT_OPACITY) as u8,
+            (255.0 * get_highlight_opacity(self.style.size)) as u8,
         ));
         paint.set_line_width(
             self.style
@@ -129,7 +135,7 @@ impl Highlight for Highlighter<BlockHighlight> {
             self.style.color.r,
             self.style.color.g,
             self.style.color.b,
-            (255.0 * HIGHLIGHT_OPACITY) as u8,
+            (255.0 * get_highlight_opacity(self.style.size)) as u8,
         ));
 
         canvas.fill_path(&shadow_path, &shadow_paint);
