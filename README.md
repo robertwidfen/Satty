@@ -1,4 +1,4 @@
-# <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation.
+# <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation
 
 Satty is a screenshot annotation tool inspired by [Swappy](https://github.com/jtheoof/swappy) and [Flameshot](https://flameshot.org/).
 
@@ -20,6 +20,7 @@ Thanks to our package maintainers, Satty is available for many distributions on 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/satty.svg)](https://repology.org/project/satty/versions)
 
 ### Specifics
+
 | Distribution | Command | Note |
 | --- | --- | --- |
 | Gentoo | `emerge -av satty` | You need guru overlay (see [wiki](https://github.com/gabm/Satty/wiki/Gentoo-Guru)). Pending [PR](https://github.com/gentoo/gentoo/pull/33908) |
@@ -85,6 +86,7 @@ The bindings are:
  
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 Default single-key shortcuts:
+
 - <kbd>p</kbd>: Pointer tool
 - <kbd>c</kbd>: Crop tool
 - <kbd>b</kbd>: Brush tool
@@ -467,6 +469,7 @@ grim -g "0,0 3840x2160" -t ppm - | satty --filename - --output-filename - | conv
 
 Add this to your ~/.config/sway/config.
 It needs `grim` and `slurp`.
+
 ```sh
 # screenshots
 # inspiration: https://www.reddit.com/r/swaywm/comments/ghnlea/comment/fqnzxkx/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
@@ -514,6 +517,7 @@ flatpak install satty-<version>.flatpak
 
 Satty is based on GTK-4 and Adwaita.
 Dependencies, depending of each distributions are:
+
 - glib2
 - gtk4 (libgtk-4-x)
 - gdk-pixbuf2

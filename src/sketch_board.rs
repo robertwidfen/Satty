@@ -1190,8 +1190,10 @@ impl SketchBoard {
                     .handle_event(ToolEvent::StyleChanged(self.style));
 
                 if self.active_tool_type() == Tools::Pointer {
+                    let is_dragging = self.pointer_tool.borrow().is_dragging();
                     let selected_index = self.pointer_tool.borrow().selected_index();
-                    if let Some(index) = selected_index
+                    if !is_dragging
+                        && let Some(index) = selected_index
                         && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
                     {
                         drawable.set_annotation_size_factor(self.style.annotation_size_factor);

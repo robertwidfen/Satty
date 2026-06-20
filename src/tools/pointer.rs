@@ -281,6 +281,10 @@ impl PointerTool {
         self.selected_index
     }
 
+    pub fn is_dragging(&self) -> bool {
+        !matches!(self.drag_state, DragState::None)
+    }
+
     // Returns the handle under `pos` given the current selection bounds.
     pub fn hit_test_handles(&self, pos: Vec2D) -> Option<ResizeHandle> {
         let overlay = self.selection_overlay.as_ref()?;
