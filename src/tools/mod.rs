@@ -298,6 +298,26 @@ pub fn hit_test_rectangle(
     pos.x < tl_inner.x || pos.x > br_inner.x || pos.y < tl_inner.y || pos.y > br_inner.y
 }
 
+pub fn hit_test_ellipse(
+    pos: Vec2D,
+    center: Vec2D,
+    radii: Vec2D,
+    tolerance: f32,
+    filled: bool,
+) -> bool {
+    let d = (pos - center) / (radii + tolerance);
+    if d * d > 1.0 {
+        return false;
+    }
+
+    if filled {
+        return true;
+    }
+
+    let inner_d = (pos - center) / (radii - tolerance);
+    inner_d * inner_d > 1.0
+}
+
 #[derive(Debug)]
 pub enum ToolUpdateResult {
     Commit(Box<dyn Drawable>),
