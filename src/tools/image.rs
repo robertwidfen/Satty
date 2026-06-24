@@ -163,7 +163,7 @@ impl Drawable for Image {
         self.top_left += delta;
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
         let (tl, br) = math::ensure_bounding_box(tl, br);
         self.top_left = tl;
         self.size = br - tl;

@@ -26,8 +26,9 @@ use relm4::{
 };
 use serde_derive::Deserialize;
 
+use crate::math::rectangle_to_ellipse;
 use crate::{
-    math::{SegmentResizeTarget, Vec2D, ensure_bounding_box},
+    math::{Vec2D, ensure_bounding_box},
     sketch_board::{InputEvent, KeyEventMsg, MouseEventMsg, SketchBoardInput, TextEventMsg},
     style::Style,
 };
@@ -195,6 +196,16 @@ impl<T: Any> AsAny for T {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SelectionType {
+    BoundingBox,
+    BoundingBoxAllHandles,
+    MiddleHandles,
+    Line,
+    Rectangle,
+    Ellipse,
+}
+
 impl<T> DrawableClone for T
 where
     T: 'static + Drawable + Clone,
@@ -222,16 +233,19 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     fn get_rendering_mode(&self) -> RenderingMode {
         RenderingMode::Default
     }
-
     fn is_renderable(&self) -> bool {
         true
     }
-
     fn bounds_only_valid_after_redraw(&self) -> bool {
         false
     }
+    /// For line like shapes, this returns the start and end points of the line.
+    /// For others, this returns the bounding box of the shape.
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
         None
+    }
+    fn get_selection_type(&self) -> SelectionType {
+        SelectionType::Rectangle
     }
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
         let _ = (pos, tolerance);
@@ -240,19 +254,10 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     fn translate(&mut self, delta: Vec2D) {
         let _ = delta;
     }
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, delta: Vec2D, keep_aspect: bool) {
-        let _ = (tl, br, delta, keep_aspect);
-    }
-    fn resize_bounds_with_segment_target(
-        &mut self,
-        tl: Vec2D,
-        br: Vec2D,
-        delta: Vec2D,
-        keep_aspect: bool,
-        target: Option<SegmentResizeTarget>,
-    ) {
-        let _ = target;
-        self.resize_bounds(tl, br, delta, keep_aspect);
+    /// For line like shapes, this resizes the line by adjusting the start and end points.
+    /// For others, this resizes the bounding box of the shape.
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, keep_aspect: bool) {
+        let _ = (tl, br, keep_aspect);
     }
     fn get_style(&self) -> Option<&Style> {
         None
@@ -354,6 +359,28 @@ fn resize_line_bounds(tl: Vec2D, br: Vec2D, start_point: &mut Vec2D, points: &mu
         if flip_y { br.y } else { tl.y },
     );
     *start_point = origin + (*start_point - current_tl) * scale;
+}
+
+pub fn hit_test_ellipse(
+    pos: Vec2D,
+    top_left: Vec2D,
+    size: Vec2D,
+    tolerance: f32,
+    filled: bool,
+) -> bool {
+    let (center, radii) = rectangle_to_ellipse(top_left, size);
+
+    let d = (pos - center) / (radii + tolerance);
+    if d.norm2() > 1.0 {
+        return false;
+    }
+
+    if filled {
+        return true;
+    }
+
+    let inner_d = (pos - center) / (radii - tolerance);
+    inner_d.norm2() > 1.0
 }
 
 #[derive(Debug)]

@@ -10,7 +10,7 @@ use std::{borrow::Cow, ops::Range};
 
 use relm4::gtk::prelude::*;
 
-use crate::tools::hit_test_rectangle;
+use crate::tools::{SelectionType, hit_test_rectangle};
 use crate::{
     configuration::APP_CONFIG,
     femtovg_area,
@@ -242,6 +242,10 @@ impl Drawable for Text {
                 (rect.y() + rect.height()) as f32,
             ),
         ))
+    }
+
+    fn get_selection_type(&self) -> SelectionType {
+        SelectionType::BoundingBox
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {

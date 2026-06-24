@@ -428,7 +428,7 @@ impl SketchBoard {
     fn is_drawable_too_small(&self, drawable: &dyn crate::tools::Drawable) -> bool {
         if let Some((tl, br)) = drawable.bounds()
             && let size = br - tl
-            && (size.x < 1.0 && size.y < 1.0)
+            && (size.x.abs() < 1.0 && size.y.abs() < 1.0)
         {
             eprintln!("Drawable size{:?} is too small, ignoring commit.", size);
             return true;
@@ -1553,21 +1553,9 @@ impl SketchBoard {
             return ToolUpdateResult::Unmodified;
         }
 
-        let Some(bounds) = self.renderer.get_drawable_bounds(index) else {
-            return ToolUpdateResult::Unmodified;
-        };
-
-        let needs_update = {
-            let pointer_tool = self.pointer_tool.borrow();
-            pointer_tool.selected_index() != Some(index)
-                || pointer_tool.selected_bounds() != Some(bounds)
-        };
-
-        if !needs_update {
-            return ToolUpdateResult::Unmodified;
-        }
-
-        self.pointer_tool.borrow_mut().set_selection(index, bounds);
+        self.pointer_tool
+            .borrow_mut()
+            .set_selection(index, drawable.as_ref());
         ToolUpdateResult::Redraw
     }
 
@@ -1968,22 +1956,17 @@ impl Component for SketchBoard {
                     self.refresh_screen();
                     return;
                 };
-                self.renderer.commit(drawable);
                 // Queue this after any live drag update so the final display is authoritative.
                 sender_clone.input(SketchBoardInput::ShapeDimensionsUpdate(
                     self.current_output_dimensions(),
                 ));
                 let auto_select = APP_CONFIG.read().auto_select();
 
-                let committed_index = self.renderer.last_drawable_index();
-
                 if auto_select {
-                    if let Some(index) = committed_index
-                        && let Some(new_bounds) = self.renderer.get_drawable_bounds(index)
-                    {
+                    if let Some(index) = self.renderer.last_drawable_index() {
                         self.pointer_tool
                             .borrow_mut()
-                            .set_selection(index, new_bounds);
+                            .set_selection(index, drawable.as_ref());
                     }
 
                     if self.active_tool_type() != Tools::Pointer {
@@ -2000,6 +1983,8 @@ impl Component for SketchBoard {
                 } else {
                     self.pointer_tool.borrow_mut().deselect();
                 }
+
+                self.renderer.commit(drawable);
 
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);

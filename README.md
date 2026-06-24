@@ -1,6 +1,7 @@
 # <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation.
 
 <!-- --8<-- [start:intro] -->
+
 Satty is a screenshot annotation tool inspired by [Swappy](https://github.com/jtheoof/swappy) and [Flameshot](https://flameshot.org/).
 
 ![](assets/usage.gif)
@@ -13,9 +14,11 @@ Satty has been created to provide the following improvements over existing scree
 - working on wlroots based compositors (Sway, Hyprland, River, ...)
 - minimal, modern looking UI, thanks to GTK and Adwaita
 - be a playground for new features (post window selection, post paint editing, ...)
+
 <!-- --8<-- [end:intro] -->
 
 ## Install
+
 <!-- --8<-- [start:install] -->
 
 Thanks to our package maintainers, Satty is available for many distributions on Linux and BSD:
@@ -26,10 +29,10 @@ For emoji support please install the "Noto Color Emoji" font.
 
 ### Specifics
 
-| Distribution | Command | Note |
-| --- | --- | --- |
-| Gentoo | `emerge -av satty` | You need guru overlay (see [wiki](https://github.com/Satty-org/Satty/wiki/Gentoo-Guru)). Pending [PR](https://github.com/gentoo/gentoo/pull/33908) |
-| Alpine Linux | `apk add satty` | Available in [Alpine Community](https://pkgs.alpinelinux.org/packages?name=satty&branch=edge&repo=&arch=&maintainer=) |
+| Distribution | Command            | Note                                                                                                                                               |
+| ------------ | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gentoo       | `emerge -av satty` | You need guru overlay (see [wiki](https://github.com/Satty-org/Satty/wiki/Gentoo-Guru)). Pending [PR](https://github.com/gentoo/gentoo/pull/33908) |
+| Alpine Linux | `apk add satty`    | Available in [Alpine Community](https://pkgs.alpinelinux.org/packages?name=satty&branch=edge&repo=&arch=&maintainer=)                              |
 
 ### Cargo
 
@@ -52,6 +55,7 @@ Satty is available as a Flatpak bundle. Pre-built bundles are automatically crea
 # Then install it:
 flatpak install satty-<version>.flatpak
 ```
+
 <!-- --8<-- [end:install] -->
 
 ## Usage
@@ -78,6 +82,7 @@ dms screenshot --stdout | satty -f -
 See [config.toml](config.toml) for the configuration.
 
 <!-- --8<-- [start:config-search] -->
+
 The search order for configuration files is:
 
 - builtin
@@ -89,6 +94,7 @@ The search order for configuration files is:
 <!-- --8<-- [end:config-search] -->
 
 ### Shortcuts
+
 <!-- --8<-- [start:shortcuts] -->
 
 #### General
@@ -114,8 +120,8 @@ Mouse:
 Touchpad: <sup>0.22.0</sup>
 
 - <kbd>Pinch</kbd>: Zoom (two finger)
-- <kbd>Ctrl+Scroll</kbd>: Zoom in/out  (two finger scroll)
-- <kbd>Scroll</kbd>: Pan  (two finger scroll)
+- <kbd>Ctrl+Scroll</kbd>: Zoom in/out (two finger scroll)
+- <kbd>Scroll</kbd>: Pan (two finger scroll)
 
 #### Color Selection Shortcuts <sup>0.20.1</sup>
 
@@ -158,13 +164,14 @@ Default single-key shortcuts:
 
 #### Overwriting Keybindings <sup>NEXTRELEASE</sup>
 
-Shortcuts can be overwritten in the config by 
+Shortcuts can be overwritten in the config by
+
 ```toml
 [keybinds]
 "BINDING" = "TOOL-OR-COMMAND"
 ```
 
-Where `BINDING` follows the GTK syntax. This means modifiers are enclosed in angle brackets (e.g., `<mod>`) and keys are specified by name (for example, `-` must be written as `minus`). 
+Where `BINDING` follows the GTK syntax. This means modifiers are enclosed in angle brackets (e.g., `<mod>`) and keys are specified by name (for example, `-` must be written as `minus`).
 
 Pressing any unbound key will print its name to the console.
 
@@ -181,6 +188,7 @@ When the active layout produces a letter of a non-Latin script, for example Cyri
 The defaults are listed in the [config.toml](config.toml).
 
 <!-- --8<-- [start:tools] -->
+
 ### Pointer Tool <sup>NEXTRELEASE</sup>
 
 Annotations can be selected by click.
@@ -189,12 +197,14 @@ Newly created annotations can be autoselected if enabled in the config.
 
 - Hold <kbd>Alt</kbd> while clicking to select between overlapping annotations.
 - <kbd>Delete</kbd> deletes the selected annotation.
-- Drag the resize handles - mouse cursor will change - to change the size. 
-  - Hold <kbd>Alt</kbd> for centered resize
-  - Hold <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>NEXTRELEASE</sup>
-  - Hold <kbd>Control</kbd> at corners for aspect ratio preserving resize. <sup>NEXTRELEASE</sup>
+- Drag the resize handles - mouse cursor will change - to change the size.
+  - Hold <kbd>Alt</kbd> for centered resize.
+  - Hold <kbd>Shift</kbd> to snap.
+  - Hold <kbd>Control</kbd> at corners for aspect ratio preserving resize.
   - Hold mutiple to combine them.
 - Grab an annotation - mouse cursor will change to a hand - to move.
+  - Hold <kbd>Alt</kbd> for horizontal move.
+  - Hold <kbd>Shift</kbd> to vertical move.
 - Scroll up/down with the mouse wheel to change the annotation's layer.
 - Nudge (small move) with the cursor keys.
 - Double-click on a text annotation to edit it.
@@ -231,7 +241,7 @@ Text:
 - Press <kbd>Enter</kbd> or switch to another tool to accept input, press <kbd>Escape</kbd> to discard entered text.
 - <kbd>Home</kbd> and <kbd>End</kbd> go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). <kbd>Ctrl</kbd> with <kbd>Home</kbd>/<kbd>End</kbd> jumps to start/end of text buffer.
 - <kbd>Up</kbd> or <kbd>Down</kbd> to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer). <sup>0.20.1</sup>
-- Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor,  <kbd>Shift+Left</kbd> to select characters before cursor,  <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>0.20.1</sup>
+- Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor, <kbd>Shift+Left</kbd> to select characters before cursor, <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>0.20.1</sup>
 - <kbd>Double-click </kbd> to select word under cursor.Triple-click to select all text. <sup>0.20.1</sup>
 - <kbd>Ctrl+A</kbd> to select all text. <sup>0.20.1</sup>
 - <kbd>Ctrl+C</kbd> to copy selected text to clipboard. <sup>0.20.1</sup>
@@ -257,9 +267,11 @@ Additional note on blur, fringe inpaint, pixelate and fringe inpaint-pixelate <s
 
 - **Maximum Privacy:** For the paranoid among us, we recommend using a solid, filled rectangle instead.
 - **Optimized Pixelation:** For best results when censoring text, ensure your block size matches the line height to guarantee unreadable characters.
+
 <!-- --8<-- [end:tools] -->
 
 ### CSS
+
 <!-- --8<-- [start:css] -->
 
 Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/main/src/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/satty/overrides.css`. Adwaita defaults for headerbar (`@headerbar_fg_color` and `@headerbar_bg_color`) which Satty uses <sup>0.21.0</sup> may lack transparency, here's an override example:
@@ -267,8 +279,8 @@ Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/m
 ```css
 .outer_box,
 .toolbar {
-    color: #000000;
-    background-color: #ddddddaa;
+  color: #000000;
+  background-color: #ddddddaa;
 }
 ```
 
@@ -276,12 +288,14 @@ You can discover styleable elements by using the GTK inspector with env variable
 <!-- --8<-- [end:css] -->
 
 <!-- --8<-- [start:ime] -->
+
 ### IME <sup>0.20.0</sup>
 
 Satty supports IME via GTK with and without preediting. Please note, at this point Satty has no proper fallback font handling so the font used needs to contain the entered glyphs.
 <!-- --8<-- [end:ime] -->
 
 <!-- --8<-- [start:integration] -->
+
 ### wlroots based compositors (Sway, Wayfire, River, ...)
 
 You can bind a key to the following command:
@@ -333,6 +347,7 @@ grim -g "0,0 3840x2160" -t ppm - | satty --filename - --output-filename - | conv
 
 Add this to your ~/.config/sway/config.
 It needs `grim` and `slurp`.
+
 ```sh
 # screenshots
 # inspiration: https://www.reddit.com/r/swaywm/comments/ghnlea/comment/fqnzxkx/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
@@ -348,9 +363,11 @@ mode $printscreen_mode {
 }
 bindsym $mod+Shift+p mode $printscreen_mode
 ```
+
 <!-- --8<-- [end:integration] -->
 
 <!-- --8<-- [start:build] -->
+
 ## Build from source
 
 You first need to install the native dependencies of Satty (see below) and then run:
@@ -377,10 +394,13 @@ Dependencies, depending of each distributions are:
 - libadwaita
 - libepoxy
 - fontconfig
+
 <!-- --8<-- [end:build] -->
 
 ## Credits
+
 <!-- --8<-- [start:credits] -->
+
 ### Maintainers and Contributors
 
 Satty wouldn't exist without the help of our contributors and maintainers. Current maintainers are: @RobertMueller2, @fabienjuif, @robertwidfen and @gabm (original author). Our contributors are:
@@ -409,11 +429,10 @@ Made with [contrib.rocks](https://contrib.rocks).
 <!-- --8<-- [end:credits] -->
 
 ## License
+
 <!-- --8<-- [start:license] -->
 
 The source code is released under the MPL-2.0 license.
 
 The Font 'Roboto Regular' from Google is released under Apache-2.0 license.
 <!-- --8<-- [end:license] -->
-
-

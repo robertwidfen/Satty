@@ -13,7 +13,7 @@ use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
-    tools::DrawableClone,
+    tools::{DrawableClone, SelectionType},
 };
 
 use super::{
@@ -150,6 +150,13 @@ impl Drawable for HighlightKind {
         }
     }
 
+    fn get_selection_type(&self) -> SelectionType {
+        match self {
+            HighlightKind::Block(_) => SelectionType::Rectangle,
+            HighlightKind::Freehand(_) => SelectionType::BoundingBoxAllHandles,
+        }
+    }
+
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
         match self {
             HighlightKind::Block(_) => {
@@ -181,7 +188,7 @@ impl Drawable for HighlightKind {
         }
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
         match self {
             HighlightKind::Block(h) => {
                 let (tl, br) = math::ensure_bounding_box(tl, br);

@@ -3,7 +3,7 @@ use femtovg::{FontId, LineJoin, Paint, Path};
 use relm4::{Sender, gtk::gdk::ModifierType};
 
 use crate::{
-    math::{self, Angle, SegmentResizeTarget, Vec2D},
+    math::{Angle, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
@@ -13,7 +13,7 @@ use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 #[derive(Clone, Copy, Debug)]
 pub struct Arrow {
     start: Vec2D,
-    end: Option<Vec2D>,
+    end: Vec2D,
     style: Style,
 }
 
@@ -52,7 +52,7 @@ impl Tool for ArrowTool {
                 // start new
                 self.arrow = Some(Arrow {
                     start: event.pos,
-                    end: None,
+                    end: event.pos,
                     style: self.style,
                 });
 
@@ -70,9 +70,9 @@ impl Tool for ArrowTool {
                         ToolUpdateResult::Redraw
                     } else {
                         if event.modifier.intersects(ModifierType::SHIFT_MASK) {
-                            a.end = Some(a.start + event.pos.snapped_vector_15deg());
+                            a.end = a.start + event.pos.snapped_vector_15deg();
                         } else {
-                            a.end = Some(a.start + event.pos);
+                            a.end = a.start + event.pos;
                         }
                         let result = a.clone_box();
                         self.arrow = None;
@@ -93,9 +93,9 @@ impl Tool for ArrowTool {
                         return ToolUpdateResult::Unmodified;
                     }
                     if event.modifier.intersects(ModifierType::SHIFT_MASK) {
-                        a.end = Some(a.start + event.pos.snapped_vector_15deg());
+                        a.end = a.start + event.pos.snapped_vector_15deg();
                     } else {
-                        a.end = Some(a.start + event.pos);
+                        a.end = a.start + event.pos;
                     }
 
                     ToolUpdateResult::Redraw
@@ -126,47 +126,25 @@ impl Tool for ArrowTool {
 
 impl Drawable for Arrow {
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
-        let end = self.end?;
-        Some(math::ensure_bounding_box(self.start, end))
+        Some((self.start, self.end))
+    }
+
+    fn get_selection_type(&self) -> super::SelectionType {
+        super::SelectionType::Line
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let Some(end) = self.end else {
-            return false;
-        };
-        pos.distance_to_segment(self.start, end) <= tolerance
+        pos.distance_to_segment(self.start, self.end) <= tolerance
     }
 
     fn translate(&mut self, delta: Vec2D) {
         self.start += delta;
-        if let Some(e) = &mut self.end {
-            *e += delta;
-        }
+        self.end += delta;
     }
 
-    fn resize_bounds(&mut self, _tl: Vec2D, _br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
-        panic!("should never be called");
-    }
-
-    fn resize_bounds_with_segment_target(
-        &mut self,
-        tl: Vec2D,
-        br: Vec2D,
-        delta: Vec2D,
-        keep_aspect: bool,
-        target: Option<SegmentResizeTarget>,
-    ) {
-        if let Some(end) = self.end {
-            let segment = (self.start, end);
-            let bounding_box = (tl, br);
-            let (start, end) =
-                math::resize_segment(segment, bounding_box, delta, keep_aspect, target);
-            self.start = start;
-            self.end = Some(end);
-        } else {
-            self.start = tl;
-            self.end = Some(br);
-        }
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
+        self.start = tl;
+        self.end = br;
     }
 
     fn get_style(&self) -> Option<&Style> {
@@ -183,10 +161,7 @@ impl Drawable for Arrow {
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        let end = match self.end {
-            Some(e) => e,
-            None => return Ok(()), // exit if no end
-        };
+        let end = self.end;
 
         // Fat arrow:
         //          C
