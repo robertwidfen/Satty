@@ -128,9 +128,12 @@ Default single-key shortcuts:
 - <kbd>e</kbd>: Ellipse tool
 - <kbd>t</kbd>: Text tool
 - <kbd>m</kbd>: Numbered Marker tool
-- <kbd>u</kbd>: Blur tool
 - <kbd>x</kbd>: Fringe inpaint+Pixelate tool
-- <kbd>g</kbd>: Highlight tool
+- <kbd>u</kbd>: Blur tool
+- <kbd>l</kbd>: Lensblur tool
+- <kbd>g</kbd>: Block Highlight tool
+- <kbd>Shift+g</kbd>: Freehand Highlight tool
+- <kbd>s</kbd>: Spotlight tool
 - <kbd>o</kbd>: Image tool <sup>NEXTRELEASE</sup>
 
 #### Overwriting Keybindings <sup>NEXTRELEASE</sup>
@@ -187,12 +190,12 @@ Arrow and line:
 
 - <kbd>Shift</kbd> to make tool snap to 15° steps.
 
-Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>:
+Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, blur <sup>0.22.0</sup>, lensblur <sup>NEXTRELASE</sup>, highlight block<sup>0.22.0</sup>, spotlight<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>:
 
 - <kbd>Alt</kbd> to center the tool around origin.
 - <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>NEXTRELEASE</sup>
 - Hold <kbd>Control</kbd> to preserve aspect ratio. Draws square if starting from zero size. <sup>NEXTRELEASE</sup>
-- Hold mutiple to combine them.
+- Hold multiple to combine them.
 
 Text:
 
@@ -279,7 +282,7 @@ focus-toggles-toolbars = false
 default-fill-shapes = false
 # Round caps for arrow and line tools
 default-round-caps = true
-# The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand]
+# The primary highlighter to use on the toolbar [possible values: block, freehand]
 primary-highlighter = "block"
 # Disable notifications
 disable-notifications = false

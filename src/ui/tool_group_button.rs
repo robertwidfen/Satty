@@ -46,6 +46,7 @@ fn update_menu_indicator_hover(
 pub struct ToolGroupInit {
     pub group: Vec<GroupableTool>,
     pub initial_tool: Tools,
+    pub default_tool: Option<Tools>,
 }
 
 pub struct ToolGroupWidgets {
@@ -113,7 +114,10 @@ impl FactoryComponent for ToolGroupButton {
     type Index = DynamicIndex;
 
     fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
-        let mut pos: usize = 0;
+        let mut pos: usize = init
+            .default_tool
+            .and_then(|d| init.group.iter().position(|t| t.tool == d))
+            .unwrap_or(0);
         let mut is_active = false;
 
         if let Some(p) = init.group.iter().position(|t| t.tool == init.initial_tool) {

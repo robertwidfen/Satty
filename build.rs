@@ -82,6 +82,9 @@ fn main() -> Result<(), io::Error> {
             "checkerboard",
             "tetris-app-regular",
             "image-regular",
+            "flashlight-regular",
+            "highlight-filled",
+            "lens-blur",
         ],
     );
 

@@ -5,7 +5,7 @@ use crate::{
     keybindings::{ShortcutCommand, ShortcutRegistry},
     math::{Vec2D, get_closest_aspect_ratio},
     style::{Color, Size},
-    tools::Tools,
+    tools::{Highlighters, Tools},
 };
 
 use crate::tools::GroupableTool;
@@ -316,12 +316,29 @@ impl SimpleComponent for ToolsToolbar {
                     icon_name: "drop-regular".into(),
                     tooltip: None,
                 },
+                GroupableTool {
+                    tool: Tools::Lensblur,
+                    icon_name: "lens-blur".into(),
+                    tooltip: None,
+                },
             ],
-            vec![GroupableTool {
-                tool: Tools::Highlight,
-                icon_name: "highlight-regular".into(),
-                tooltip: None,
-            }],
+            vec![
+                GroupableTool {
+                    tool: Tools::HighlightBlock,
+                    icon_name: "highlight-filled".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::HighlightFreehand,
+                    icon_name: "highlight-regular".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::HighlightSpotlight,
+                    icon_name: "flashlight-regular".into(),
+                    tooltip: None,
+                },
+            ],
             vec![GroupableTool {
                 tool: Tools::Image,
                 icon_name: "image-regular".into(),
@@ -343,9 +360,18 @@ impl SimpleComponent for ToolsToolbar {
                     ShortcutCommand::SelectTool(g.tool),
                 ));
             }
+            let is_highlighter_group = tg.iter().any(|g| g.tool == Tools::HighlightBlock);
+            let default_tool = is_highlighter_group.then(|| {
+                match APP_CONFIG.read().primary_highlighter() {
+                    Highlighters::Block => Tools::HighlightBlock,
+                    Highlighters::Freehand => Tools::HighlightFreehand,
+                    Highlighters::Spotlight => Tools::HighlightSpotlight,
+                }
+            });
             let init = ToolGroupInit {
                 group: tg,
                 initial_tool,
+                default_tool,
             };
             guard.push_back(init);
         }

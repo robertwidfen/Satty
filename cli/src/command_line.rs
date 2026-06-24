@@ -257,13 +257,15 @@ pub enum Tools {
     Ellipse,
     Text,
     Marker,
-    Blur,
-    Pixelate,
     FringePixelate,
+    Pixelate,
     Fringe,
-    Highlight,
+    Blur,
+    Lensblur,
+    HighlightBlock,
+    HighlightFreehand,
+    HighlightSpotlight,
     Brush,
-    // NEXTRELEASE
     Image,
 }
 
@@ -281,6 +283,7 @@ pub enum Highlighters {
     #[default]
     Block,
     Freehand,
+    Spotlight,
 }
 
 impl std::fmt::Display for Tools {
@@ -289,18 +292,21 @@ impl std::fmt::Display for Tools {
         let s = match self {
             Pointer => "pointer",
             Crop => "crop",
+            Brush => "brush",
             Line => "line",
             Arrow => "arrow",
             Rectangle => "rectangle",
             Ellipse => "ellipse",
             Text => "text",
             Marker => "marker",
-            Blur => "blur",
-            Pixelate => "pixelate",
             FringePixelate => "fringe-pixelate",
+            Pixelate => "pixelate",
             Fringe => "fringe",
-            Highlight => "highlight",
-            Brush => "brush",
+            Blur => "blur",
+            Lensblur => "lensblur",
+            HighlightBlock => "highlight-block",
+            HighlightFreehand => "highlight-freehand",
+            HighlightSpotlight => "highlight-spotlight",
             Image => "image",
         };
         f.write_str(s)

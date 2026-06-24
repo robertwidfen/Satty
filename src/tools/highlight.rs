@@ -1,7 +1,12 @@
-use std::ops::{Add, Sub};
+use std::{
+    cell::RefCell,
+    ops::{Add, Sub},
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Result;
-use femtovg::{Paint, Path};
+use femtovg::{Color, ImageId, Paint, Path, RenderTarget};
 
 use relm4::{
     Sender,
@@ -10,11 +15,10 @@ use relm4::{
 use serde_derive::Deserialize;
 
 use crate::{
-    configuration::APP_CONFIG,
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
-    tools::{DrawableClone, hit_test_rectangle},
+    tools::{DrawableClone, RenderingMode, SpotlightData, hit_test_ellipse, hit_test_rectangle},
 };
 
 use satty_cli::command_line;
@@ -24,13 +28,13 @@ use super::{
     drag_box::{DragBox, draw_center_marker},
 };
 
-const HIGHLIGHT_OPACITY: f64 = 0.4;
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
+#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Highlighters {
+    #[default]
     Block = 0,
     Freehand = 1,
+    Spotlight = 2,
 }
 
 impl From<command_line::Highlighters> for Highlighters {
@@ -38,17 +42,21 @@ impl From<command_line::Highlighters> for Highlighters {
         match tool {
             command_line::Highlighters::Block => Self::Block,
             command_line::Highlighters::Freehand => Self::Freehand,
+            command_line::Highlighters::Spotlight => Self::Spotlight,
         }
     }
 }
 
 #[derive(Clone, Debug)]
 struct BlockHighlight {
+    is_spotlight: bool,
+    shared_spotlight_alpha: Option<Arc<Mutex<f32>>>,
     origin: Vec2D,
     top_left: Vec2D,
     size: Vec2D,
     centered: bool,
     editing: bool,
+    cached_layer: Rc<RefCell<Option<(u32, u32, ImageId)>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -64,11 +72,21 @@ struct Highlighter<T> {
 }
 
 trait Highlight {
-    fn highlight(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()>;
+    fn draw(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()>;
+    fn draw_spotlight(
+        &self,
+        _canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _bounds: (Vec2D, Vec2D),
+        _boxes: &Vec<SpotlightData>,
+        _corner_radius: f32,
+        _spotlight_preview: bool,
+        _output_target: RenderTarget,
+    ) {
+    }
 }
 
 impl Highlight for Highlighter<FreehandHighlight> {
-    fn highlight(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()> {
+    fn draw(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()> {
         canvas.save();
 
         let mut path = Path::new();
@@ -87,7 +105,7 @@ impl Highlight for Highlighter<FreehandHighlight> {
             self.style.color.r,
             self.style.color.g,
             self.style.color.b,
-            (255.0 * HIGHLIGHT_OPACITY) as u8,
+            (255.0 * self.style.highlight_alpha()) as u8,
         ));
         paint.set_line_width(
             self.style
@@ -104,17 +122,22 @@ impl Highlight for Highlighter<FreehandHighlight> {
 }
 
 impl Highlight for Highlighter<BlockHighlight> {
-    fn highlight(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()> {
+    fn draw(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()> {
         let (pos, size) = math::rect_ensure_positive_size(self.data.top_left, self.data.size);
 
         let mut shadow_path = Path::new();
-        shadow_path.rounded_rect(pos.x, pos.y, size.x, size.y, self.style.corner_radius());
+        if self.style.fill {
+            shadow_path.rounded_rect(pos.x, pos.y, size.x, size.y, self.style.corner_radius());
+        } else {
+            let (center, radii) = math::rect_to_ellipsis((pos, size));
+            shadow_path.ellipse(center.x, center.y, radii.x, radii.y);
+        }
 
         let shadow_paint = Paint::color(femtovg::Color::rgba(
             self.style.color.r,
             self.style.color.g,
             self.style.color.b,
-            (255.0 * HIGHLIGHT_OPACITY) as u8,
+            (255.0 * self.style.highlight_alpha()) as u8,
         ));
 
         canvas.fill_path(&shadow_path, &shadow_paint);
@@ -124,6 +147,45 @@ impl Highlight for Highlighter<BlockHighlight> {
         }
 
         Ok(())
+    }
+
+    fn draw_spotlight(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        bounds: (Vec2D, Vec2D),
+        boxes: &Vec<SpotlightData>,
+        corner_radius: f32,
+        spotlight_preview: bool,
+        output_target: RenderTarget,
+    ) {
+        if self.data.shared_spotlight_alpha.is_none() {
+            return;
+        }
+
+        let alpha = *self
+            .data
+            .shared_spotlight_alpha
+            .as_ref()
+            .expect("Should exist")
+            .lock()
+            .unwrap();
+        let alpha = if spotlight_preview { 0.4 } else { alpha };
+        let canvas_tl = bounds.0;
+        let canvas_size = bounds.1 - bounds.0;
+        super::spotlight::draw_spotlight_layer(
+            canvas,
+            boxes,
+            corner_radius,
+            output_target,
+            &self.data.cached_layer,
+            |canvas| {
+                let mut dim = Path::new();
+                dim.rect(canvas_tl.x, canvas_tl.y, canvas_size.x, canvas_size.y);
+                let mut color = Color::black();
+                color.set_alphaf(alpha);
+                canvas.fill_path(&dim, &Paint::color(color));
+            },
+        );
     }
 }
 
@@ -144,13 +206,58 @@ enum HighlightKind {
 
 #[derive(Default, Clone, Debug)]
 pub struct HighlightTool {
+    kind: Highlighters,
     highlighter: Option<HighlightKind>,
     style: Style,
     input_enabled: bool,
     sender: Option<Sender<SketchBoardInput>>,
+    shared_spotlight_alpha: Option<Arc<Mutex<f32>>>,
+}
+
+impl HighlightTool {
+    pub(crate) fn block() -> Self {
+        let style = Style::default();
+        HighlightTool {
+            kind: Highlighters::Block,
+            highlighter: None,
+            style,
+            input_enabled: true,
+            sender: None,
+            shared_spotlight_alpha: None,
+        }
+    }
+    pub(crate) fn freehand() -> Self {
+        let style = Style::default();
+        HighlightTool {
+            kind: Highlighters::Freehand,
+            highlighter: None,
+            style,
+            input_enabled: true,
+            sender: None,
+            shared_spotlight_alpha: None,
+        }
+    }
+    pub(crate) fn spotlight() -> Self {
+        let style = Style::default();
+        HighlightTool {
+            kind: Highlighters::Spotlight,
+            highlighter: None,
+            style,
+            input_enabled: true,
+            sender: None,
+            shared_spotlight_alpha: Some(Arc::new(Mutex::new(style.spotlight_alpha()))),
+        }
+    }
 }
 
 impl Drawable for HighlightKind {
+    fn get_rendering_mode(&self) -> super::RenderingMode {
+        match self {
+            HighlightKind::Block(h) if h.data.is_spotlight => RenderingMode::SpotlightHighlight,
+            _ => RenderingMode::Default,
+        }
+    }
+
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
         match self {
             HighlightKind::Block(h) => Some(math::ensure_bounding_box(
@@ -184,11 +291,20 @@ impl Drawable for HighlightKind {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        if let HighlightKind::Block(highlighter) = self
+            && highlighter.data.is_spotlight
+            && !highlighter.style.fill
+        {
+            let (center, radii) =
+                math::rect_to_ellipsis((highlighter.data.top_left, highlighter.data.size));
+            return hit_test_ellipse(pos, center, radii, tolerance, false);
+        }
+
         let (tl, br) = match self.bounds() {
             Some(bounds) => bounds,
             None => return false,
         };
-        hit_test_rectangle(pos, tl, br - tl, tolerance, true)
+        hit_test_rectangle(pos, tl, br - tl, tolerance, false)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -280,10 +396,38 @@ impl Drawable for HighlightKind {
         }
     }
 
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
+    fn set_style(&mut self, style: Style) {
         match self {
-            HighlightKind::Block(highlighter) => Some(&mut highlighter.style),
-            HighlightKind::Freehand(highlighter) => Some(&mut highlighter.style),
+            HighlightKind::Block(highlighter) => {
+                highlighter.style = style;
+                if highlighter.data.is_spotlight
+                    && let Some(alpha) = &highlighter.data.shared_spotlight_alpha
+                {
+                    *alpha.lock().unwrap() = highlighter.style.spotlight_alpha();
+                }
+            }
+            HighlightKind::Freehand(highlighter) => highlighter.style = style,
+        }
+    }
+
+    fn draw_spotlight(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        bounds: (Vec2D, Vec2D),
+        boxes: &Vec<SpotlightData>,
+        spotlight_preview: bool,
+        _background_image_id: femtovg::ImageId,
+        output_target: RenderTarget,
+    ) {
+        if let HighlightKind::Block(hb) = self {
+            hb.draw_spotlight(
+                canvas,
+                bounds,
+                boxes,
+                self.get_style().unwrap().corner_radius(),
+                spotlight_preview,
+                output_target,
+            );
         }
     }
 
@@ -294,9 +438,16 @@ impl Drawable for HighlightKind {
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
         match self {
-            HighlightKind::Block(highlighter) => highlighter.highlight(canvas),
-            HighlightKind::Freehand(highlighter) => highlighter.highlight(canvas),
+            HighlightKind::Block(highlighter) => highlighter.draw(canvas),
+            HighlightKind::Freehand(highlighter) => highlighter.draw(canvas),
         }
+    }
+
+    fn get_centered(&self) -> bool {
+        if let HighlightKind::Block(highlighter) = self {
+            return highlighter.data.centered;
+        }
+        false
     }
 
     fn set_centered(&mut self, centered: bool) {
@@ -305,6 +456,7 @@ impl Drawable for HighlightKind {
             highlighter.data.origin = highlighter.data.top_left + highlighter.data.size / 2.0;
         }
     }
+
     fn set_editing(&mut self, editing: bool) {
         if let HighlightKind::Block(highlighter) = self {
             highlighter.data.editing = editing;
@@ -326,47 +478,59 @@ impl Tool for HighlightTool {
     }
 
     fn get_tool_type(&self) -> super::Tools {
-        Tools::Highlight
+        match self.kind {
+            Highlighters::Block => Tools::HighlightBlock,
+            Highlighters::Freehand => Tools::HighlightFreehand,
+            Highlighters::Spotlight => Tools::HighlightSpotlight,
+        }
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         let shift_pressed = event.modifier.intersects(ModifierType::SHIFT_MASK);
-        let ctrl_pressed = event.modifier.intersects(ModifierType::CONTROL_MASK);
-        let primary_highlighter = APP_CONFIG.read().primary_highlighter();
         match event.type_ {
             MouseEventType::BeginDrag => {
                 if event.button == MouseButton::Middle {
                     return ToolUpdateResult::Unmodified;
                 }
-                // There exists two types of highlighting modes currently: freehand, block
-                // A user may set a primary highlighter mode, with the other being accessible
-                // by clicking CTRL when starting a highlight (doesn't need to be held).
-                match (primary_highlighter, ctrl_pressed) {
-                    // This matches when CTRL is not pressed and the primary highlighting mode
-                    // is block, along with its inverse, CTRL pressed with the freehand mode
-                    // being their primary highlighting mode.
-                    (Highlighters::Block, false) | (Highlighters::Freehand, true) => {
+                match self.kind {
+                    Highlighters::Block => {
                         self.highlighter =
                             Some(HighlightKind::Block(Highlighter::<BlockHighlight> {
                                 data: BlockHighlight {
+                                    is_spotlight: false,
+                                    shared_spotlight_alpha: None,
                                     origin: event.pos,
                                     top_left: event.pos,
                                     size: Vec2D::zero(),
                                     centered: false,
                                     editing: true,
+                                    cached_layer: Rc::new(RefCell::new(None)),
                                 },
                                 style: self.style,
                             }))
                     }
-                    // This matches the remaining two cases, which is when the user has the
-                    // freehand mode as the primary mode and CTRL is not pressed, and conversely,
-                    // when CTRL is pressed and the users primary mode is block.
-                    (Highlighters::Freehand, false) | (Highlighters::Block, true) => {
+                    Highlighters::Freehand => {
                         self.highlighter =
                             Some(HighlightKind::Freehand(Highlighter::<FreehandHighlight> {
                                 data: FreehandHighlight {
                                     points: vec![event.pos],
                                     shift_pressed,
+                                },
+                                style: self.style,
+                            }))
+                    }
+                    Highlighters::Spotlight => {
+                        self.highlighter =
+                            Some(HighlightKind::Block(Highlighter::<BlockHighlight> {
+                                data: BlockHighlight {
+                                    is_spotlight: true,
+                                    shared_spotlight_alpha: self.shared_spotlight_alpha.clone(),
+                                    origin: event.pos,
+                                    top_left: event.pos,
+                                    size: Vec2D::zero(),
+                                    centered: false,
+                                    editing: true,
+                                    cached_layer: Rc::new(RefCell::new(None)),
                                 },
                                 style: self.style,
                             }))
@@ -508,6 +672,11 @@ impl Tool for HighlightTool {
 
     fn handle_style_event(&mut self, style: Style) -> ToolUpdateResult {
         self.style = style;
+        if self.kind == Highlighters::Spotlight
+            && let Some(ref shared_spotlight_alpha) = self.shared_spotlight_alpha
+        {
+            *shared_spotlight_alpha.lock().unwrap() = style.spotlight_alpha();
+        }
         ToolUpdateResult::Unmodified
     }
 
