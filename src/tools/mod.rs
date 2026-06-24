@@ -63,10 +63,16 @@ pub enum ToolEvent {
 // The rendering mode of a drawable. This is used to determine drawables
 // which should be taken out of the stack order to draw them earlier or later.
 pub enum RenderingMode {
-    Default,          // Render in stack order
-    Blur,             // Rendered below everything else, but above the background
-    Crop,             // Rendered above everything else, but below the SelectionOverlay
-    SelectionOverlay, // Render above everything else
+    // Rendered below everything else, but above the background
+    BlurOrPixelate,
+    SpotlightBlur,
+    SpotlightHighlight,
+    // Render in stack order
+    Default,
+    // Rendered above everything else, but below the SelectionOverlay
+    Crop,
+    // Render above everything else
+    SelectionOverlay,
 }
 
 pub trait Tool {
@@ -205,18 +211,36 @@ where
 }
 
 pub trait Drawable: DrawableClone + Debug + AsAny {
-    fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
-    -> Result<()>;
     fn draw_baselayer(
         &self,
         canvas: &mut Canvas<OpenGl>,
         image: &ImgVec<RGBA8>,
+        background_image_id: femtovg::ImageId,
         font: FontId,
         bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
         let _ = image;
+        let _ = background_image_id;
         self.draw(canvas, font, bounds)
     }
+    fn draw_spotlight(
+        &self,
+        canvas: &mut Canvas<OpenGl>,
+        bounds: (Vec2D, Vec2D),
+        boxes: &Vec<(Vec2D, Vec2D)>,
+        spotlight_preview: bool,
+        background_image_id: femtovg::ImageId,
+    ) {
+        let _ = (
+            canvas,
+            bounds,
+            boxes,
+            spotlight_preview,
+            background_image_id,
+        );
+    }
+    fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
+    -> Result<()>;
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
     fn get_rendering_mode(&self) -> RenderingMode {
@@ -246,8 +270,8 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     fn get_style(&self) -> Option<&Style> {
         None
     }
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        None
+    fn set_style(&mut self, style: Style) {
+        let _ = style;
     }
     fn set_centered(&mut self, centered: bool) {
         let _ = centered;
@@ -340,6 +364,8 @@ pub enum Tools {
     FringePixelate = 12,
     Fringe = 13,
     Image = 14,
+    Lensblur = 15,
+    Spotlight = 16,
 }
 
 impl fmt::Display for Tools {
@@ -360,6 +386,8 @@ impl fmt::Display for Tools {
             Tools::FringePixelate => "Fringe inpaint+Pixelate",
             Tools::Fringe => "Fringe inpaint",
             Tools::Image => "Image",
+            Tools::Lensblur => "Lensblur",
+            Tools::Spotlight => "Spotlight",
         };
         write!(f, "{}", name)
     }
@@ -389,6 +417,8 @@ impl FromStr for Tools {
             "fringe-pixelate" => Ok(Self::FringePixelate),
             "fringe" => Ok(Self::Fringe),
             "image" => Ok(Self::Image),
+            "lensblur" => Ok(Self::Lensblur),
+            "spotlight" => Ok(Self::Spotlight),
             _ => Err(ParseCommandError),
         }
     }
@@ -435,8 +465,16 @@ impl ToolsManager {
             Rc::new(RefCell::new(PixelateTool::with_mode(PixelateMode::Fringe))),
         );
         tools.insert(
+            Tools::Lensblur,
+            Rc::new(RefCell::new(BlurTool::spotlight())),
+        );
+        tools.insert(
             Tools::Highlight,
             Rc::new(RefCell::new(HighlightTool::default())),
+        );
+        tools.insert(
+            Tools::Spotlight,
+            Rc::new(RefCell::new(HighlightTool::spotlight())),
         );
         tools.insert(Tools::Marker, Rc::new(RefCell::new(MarkerTool::default())));
         tools.insert(Tools::Brush, Rc::new(RefCell::new(BrushTool::default())));
@@ -507,6 +545,8 @@ impl FromVariant for Tools {
             12 => Some(Tools::FringePixelate),
             13 => Some(Tools::Fringe),
             14 => Some(Tools::Image),
+            15 => Some(Tools::Lensblur),
+            16 => Some(Tools::Spotlight),
             _ => None,
         })
     }
@@ -517,18 +557,20 @@ impl From<command_line::Tools> for Tools {
         match tool {
             command_line::Tools::Pointer => Self::Pointer,
             command_line::Tools::Crop => Self::Crop,
+            command_line::Tools::Brush => Self::Brush,
             command_line::Tools::Line => Self::Line,
             command_line::Tools::Arrow => Self::Arrow,
             command_line::Tools::Rectangle => Self::Rectangle,
             command_line::Tools::Ellipse => Self::Ellipse,
             command_line::Tools::Text => Self::Text,
             command_line::Tools::Marker => Self::Marker,
-            command_line::Tools::Blur => Self::Blur,
             command_line::Tools::Pixelate => Self::Pixelate,
             command_line::Tools::FringePixelate => Self::FringePixelate,
             command_line::Tools::Fringe => Self::Fringe,
+            command_line::Tools::Blur => Self::Blur,
+            command_line::Tools::Lensblur => Self::Lensblur,
             command_line::Tools::Highlight => Self::Highlight,
-            command_line::Tools::Brush => Self::Brush,
+            command_line::Tools::Spotlight => Self::Spotlight,
             command_line::Tools::Image => Self::Image,
         }
     }

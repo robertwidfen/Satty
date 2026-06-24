@@ -128,7 +128,9 @@ Default single-key shortcuts:
 - <kbd>m</kbd>: Numbered Marker tool
 - <kbd>u</kbd>: Blur tool
 - <kbd>x</kbd>: Fringe inpaint+Pixelate tool
+- <kbd>l</kbd>: Lensblur tool
 - <kbd>g</kbd>: Highlight tool
+- <kbd>s</kbd>: Spotlight tool
 - <kbd>o</kbd>: Image tool <sup>NEXTRELEASE</sup>
 
 #### Overwriting Keybindings <sup>NEXTRELEASE</sup>
@@ -185,12 +187,12 @@ Arrow and line:
 
 - <kbd>Shift</kbd> to make tool snap to 15° steps.
 
-Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>:
+Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, blur <sup>0.22.0</sup>, lensblur <sup>NEXTRELASE</sup>, highlight block<sup>0.22.0</sup>, spotlight<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>:
 
 - <kbd>Alt</kbd> to center the tool around origin.
 - <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>NEXTRELEASE</sup>
 - Hold <kbd>Control</kbd> to preserve aspect ratio. Draws square if starting from zero size. <sup>NEXTRELEASE</sup>
-- Hold mutiple to combine them.
+- Hold multiple to combine them.
 
 Text:
 

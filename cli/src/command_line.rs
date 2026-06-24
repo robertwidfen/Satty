@@ -257,13 +257,14 @@ pub enum Tools {
     Ellipse,
     Text,
     Marker,
-    Blur,
-    Pixelate,
     FringePixelate,
+    Pixelate,
     Fringe,
+    Blur,
+    Lensblur,
     Highlight,
+    Spotlight,
     Brush,
-    // NEXTRELEASE
     Image,
 }
 
@@ -295,11 +296,13 @@ impl std::fmt::Display for Tools {
             Ellipse => "ellipse",
             Text => "text",
             Marker => "marker",
-            Blur => "blur",
-            Pixelate => "pixelate",
             FringePixelate => "fringe-pixelate",
+            Pixelate => "pixelate",
             Fringe => "fringe",
+            Blur => "blur",
+            Lensblur => "lensblur",
             Highlight => "highlight",
+            Spotlight => "spotlight",
             Brush => "brush",
             Image => "image",
         };
