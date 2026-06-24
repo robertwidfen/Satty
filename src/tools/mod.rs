@@ -56,10 +56,12 @@ pub enum ToolEvent {
 // The rendering mode of a drawable. This is used to determine drawables
 // which should be taken out of the stack order to draw them earlier or later.
 pub enum RenderingMode {
-    Default,          // Render in stack order
-    Blur,             // Rendered below everything else, but above the background
-    Crop,             // Rendered above everything else, but below the SelectionOverlay
-    SelectionOverlay, // Render above everything else
+    Blur,
+    SpotlightBlur,
+    SpotlightHighlight,
+    Default,
+    Crop,
+    SelectionOverlay,
 }
 
 pub trait Tool {
@@ -185,6 +187,22 @@ where
 }
 
 pub trait Drawable: DrawableClone + Debug + AsAny {
+    fn draw_spotlight(
+        &self,
+        canvas: &mut Canvas<OpenGl>,
+        bounds: (Vec2D, Vec2D),
+        boxes: &Vec<(Vec2D, Vec2D)>,
+        spotlight_preview: bool,
+        background_image_id: Option<femtovg::ImageId>,
+    ) {
+        let _ = (
+            canvas,
+            bounds,
+            boxes,
+            spotlight_preview,
+            background_image_id,
+        );
+    }
     fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
     -> Result<()>;
     fn handle_undo(&mut self) {}
