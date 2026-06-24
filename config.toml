@@ -162,7 +162,7 @@ input-scale = 1.0
 "9" = "select-color-index:9"
 "minus" = "cycle-size"
 #"..." = "select-size:(small|medium|large)"
-"s" = "focus-annotation-size-factor"
+"w" = "focus-annotation-size-factor"
 "f" = "toggle-fill"
 "k" = "toggle-round-caps"
 
