@@ -1,7 +1,7 @@
 use std::ops::{Add, Sub};
 
 use anyhow::Result;
-use femtovg::{Paint, Path};
+use femtovg::{Color, Paint, Path};
 
 use relm4::{
     Sender,
@@ -14,7 +14,7 @@ use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::{Size, Style},
-    tools::{DrawableClone, hit_test_rectangle},
+    tools::{DrawableClone, RenderingMode, hit_test_rectangle},
 };
 
 use satty_cli::command_line;
@@ -157,6 +157,18 @@ pub struct HighlightTool {
 }
 
 impl Drawable for HighlightKind {
+    fn get_rendering_mode(&self) -> super::RenderingMode {
+        let fill = match self {
+            HighlightKind::Block(h) => h.style.fill,
+            HighlightKind::Freehand(_) => false,
+        };
+        if fill {
+            RenderingMode::SpotlightHighlight
+        } else {
+            RenderingMode::Default
+        }
+    }
+
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
         match self {
             HighlightKind::Block(h) => Some(math::ensure_bounding_box(
@@ -194,7 +206,7 @@ impl Drawable for HighlightKind {
             Some(bounds) => bounds,
             None => return false,
         };
-        hit_test_rectangle(pos, tl, br - tl, tolerance, true)
+        hit_test_rectangle(pos, tl, br - tl, tolerance, false)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -291,6 +303,35 @@ impl Drawable for HighlightKind {
             HighlightKind::Block(highlighter) => Some(&mut highlighter.style),
             HighlightKind::Freehand(highlighter) => Some(&mut highlighter.style),
         }
+    }
+
+    fn draw_spotlight(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        bounds: (Vec2D, Vec2D),
+        boxes: &Vec<(Vec2D, Vec2D)>,
+        _spotlight_preview: bool,
+        _background_image_id: femtovg::ImageId,
+    ) {
+        let (canvas_tl, canvas_size) = (bounds.0, bounds.1 - bounds.0);
+
+        let mut path = Path::new();
+        path.rect(canvas_tl.x, canvas_tl.y, canvas_size.x, canvas_size.y);
+        for (tl, br) in boxes {
+            path.rounded_rect(
+                tl.x,
+                tl.y,
+                br.x - tl.x,
+                br.y - tl.y,
+                self.get_style().unwrap().corner_radius(),
+            );
+        }
+
+        let mut color = Color::black();
+        color.set_alphaf(0.6);
+        let paint = Paint::color(color).with_fill_rule(femtovg::FillRule::EvenOdd);
+
+        canvas.fill_path(&path, &paint);
     }
 
     fn draw(
@@ -451,6 +492,13 @@ impl Tool for HighlightTool {
                 }
 
                 if let HighlightKind::Block(highlighter) = &mut *highlighter_kind {
+                    if let size = highlighter.data.size
+                        && size.x.abs() <= 0.0
+                        && size.y.abs() <= 0.0
+                    {
+                        self.highlighter = None;
+                        return ToolUpdateResult::Unmodified;
+                    }
                     highlighter.data.editing = false;
                 }
 

@@ -63,10 +63,16 @@ pub enum ToolEvent {
 // The rendering mode of a drawable. This is used to determine drawables
 // which should be taken out of the stack order to draw them earlier or later.
 pub enum RenderingMode {
-    Default,          // Render in stack order
-    Blur,             // Rendered below everything else, but above the background
-    Crop,             // Rendered above everything else, but below the SelectionOverlay
-    SelectionOverlay, // Render above everything else
+    // Rendered below everything else, but above the background
+    BlurOrPixelate,
+    SpotlightBlur,
+    SpotlightHighlight,
+    // Render in stack order
+    Default,
+    // Rendered above everything else, but below the SelectionOverlay
+    Crop,
+    // Render above everything else
+    SelectionOverlay,
 }
 
 pub trait Tool {
@@ -205,18 +211,36 @@ where
 }
 
 pub trait Drawable: DrawableClone + Debug + AsAny {
-    fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
-    -> Result<()>;
+    fn draw_spotlight(
+        &self,
+        canvas: &mut Canvas<OpenGl>,
+        bounds: (Vec2D, Vec2D),
+        boxes: &Vec<(Vec2D, Vec2D)>,
+        spotlight_preview: bool,
+        background_image_id: femtovg::ImageId,
+    ) {
+        let _ = (
+            canvas,
+            bounds,
+            boxes,
+            spotlight_preview,
+            background_image_id,
+        );
+    }
     fn draw_baselayer(
         &self,
         canvas: &mut Canvas<OpenGl>,
         image: &ImgVec<RGBA8>,
+        background_image_id: femtovg::ImageId,
         font: FontId,
         bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
         let _ = image;
+        let _ = background_image_id;
         self.draw(canvas, font, bounds)
     }
+    fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
+    -> Result<()>;
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
     fn get_rendering_mode(&self) -> RenderingMode {
