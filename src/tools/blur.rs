@@ -75,7 +75,7 @@ impl Drawable for Blur {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        hit_test_rectangle(pos, self.top_left, self.size, tolerance, true)
+        hit_test_rectangle(pos, self.top_left, self.size, tolerance, false)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -105,6 +105,15 @@ impl Drawable for Blur {
 
     fn get_annotation_size_factor(&self) -> Option<f32> {
         Some(self.style.annotation_size_factor)
+    }
+
+    fn get_fill(&self) -> bool {
+        self.style.fill
+    }
+
+    fn set_fill(&mut self, fill: bool) {
+        self.style.fill = fill;
+        *self.cached_image.borrow_mut() = None;
     }
 
     fn draw(
@@ -147,12 +156,18 @@ impl Drawable for Blur {
             canvas.save();
             canvas.flush();
 
+            let (blur_pos, blur_size) = if !self.style.fill {
+                (pos, size)
+            } else {
+                (bounds.0, bounds.1 - bounds.0)
+            };
+
             // create new cached image
             if self.cached_image.borrow().is_none() {
                 self.cached_image.borrow_mut().replace(Self::blur(
                     canvas,
-                    pos,
-                    size,
+                    blur_pos,
+                    blur_size,
                     self.style
                         .size
                         .to_blur_factor(self.style.annotation_size_factor),
@@ -160,6 +175,9 @@ impl Drawable for Blur {
             }
 
             let mut path = Path::new();
+            if self.style.fill {
+                path.rect(blur_pos.x, blur_pos.y, blur_size.x, blur_size.y);
+            }
             path.rounded_rect(
                 pos.x,
                 pos.y,
@@ -167,19 +185,24 @@ impl Drawable for Blur {
                 size.y,
                 APP_CONFIG.read().corner_roundness(),
             );
-
             canvas.fill_path(
                 &path,
                 &Paint::image(
-                    self.cached_image.borrow().unwrap(), // this unwrap is safe because we placed it above
-                    pos.x,
-                    pos.y,
-                    size.x,
-                    size.y,
+                    self.cached_image.borrow().unwrap(),
+                    blur_pos.x,
+                    blur_pos.y,
+                    blur_size.x,
+                    blur_size.y,
                     0f32,
                     1f32,
-                ),
+                )
+                .with_fill_rule(if !self.style.fill {
+                    femtovg::FillRule::NonZero
+                } else {
+                    femtovg::FillRule::EvenOdd
+                }),
             );
+
             canvas.restore();
         }
         Ok(())

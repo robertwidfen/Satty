@@ -70,11 +70,19 @@ struct Highlighter<T> {
 }
 
 trait Highlight {
-    fn highlight(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()>;
+    fn highlight(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        bounds: (Vec2D, Vec2D),
+    ) -> Result<()>;
 }
 
 impl Highlight for Highlighter<FreehandHighlight> {
-    fn highlight(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()> {
+    fn highlight(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _bounds: (Vec2D, Vec2D),
+    ) -> Result<()> {
         canvas.save();
 
         let mut path = Path::new();
@@ -110,7 +118,11 @@ impl Highlight for Highlighter<FreehandHighlight> {
 }
 
 impl Highlight for Highlighter<BlockHighlight> {
-    fn highlight(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()> {
+    fn highlight(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        bounds: (Vec2D, Vec2D),
+    ) -> Result<()> {
         let size = match self.data.size {
             Some(s) => s,
             None => return Ok(()), // early exit if size is none
@@ -122,8 +134,18 @@ impl Highlight for Highlighter<BlockHighlight> {
             draw_center_marker(canvas, self.data.origin);
         }
 
-        let mut shadow_path = Path::new();
-        shadow_path.rounded_rect(
+        let (hl_pos, hl_size) = if !self.style.fill {
+            (pos, size)
+        } else {
+            (bounds.0, bounds.1 - bounds.0)
+        };
+
+        let mut path = Path::new();
+        if self.style.fill {
+            path.rect(hl_pos.x, hl_pos.y, hl_size.x, hl_size.y);
+        }
+
+        path.rounded_rect(
             pos.x,
             pos.y,
             size.x,
@@ -136,9 +158,16 @@ impl Highlight for Highlighter<BlockHighlight> {
             self.style.color.g,
             self.style.color.b,
             (255.0 * get_highlight_opacity(self.style.size)) as u8,
-        ));
+        ))
+        .with_fill_rule(if !self.style.fill {
+            femtovg::FillRule::NonZero
+        } else {
+            femtovg::FillRule::EvenOdd
+        });
 
-        canvas.fill_path(&shadow_path, &shadow_paint);
+        canvas.save();
+        canvas.fill_path(&path, &shadow_paint);
+        canvas.restore();
         Ok(())
     }
 }
@@ -207,7 +236,7 @@ impl Drawable for HighlightKind {
             Some(bounds) => bounds,
             None => return false,
         };
-        hit_test_rectangle(pos, tl, Some(br - tl), tolerance, true)
+        hit_test_rectangle(pos, tl, Some(br - tl), tolerance, false)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -333,15 +362,29 @@ impl Drawable for HighlightKind {
         })
     }
 
+    fn get_fill(&self) -> bool {
+        match self {
+            HighlightKind::Block(h) => h.style.fill,
+            HighlightKind::Freehand(h) => h.style.fill,
+        }
+    }
+
+    fn set_fill(&mut self, fill: bool) {
+        match self {
+            HighlightKind::Block(h) => h.style.fill = fill,
+            HighlightKind::Freehand(h) => h.style.fill = fill,
+        }
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: femtovg::FontId,
-        _bounds: (Vec2D, Vec2D),
+        bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
         match self {
-            HighlightKind::Block(highlighter) => highlighter.highlight(canvas),
-            HighlightKind::Freehand(highlighter) => highlighter.highlight(canvas),
+            HighlightKind::Block(highlighter) => highlighter.highlight(canvas, bounds),
+            HighlightKind::Freehand(highlighter) => highlighter.highlight(canvas, bounds),
         }
     }
 }
