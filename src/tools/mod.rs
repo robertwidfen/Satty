@@ -51,6 +51,13 @@ pub enum ToolEvent {
     StyleChanged(Style),
 }
 
+#[derive(Debug, PartialEq)]
+pub enum SpotlightKind {
+    None,
+    Blur,
+    Highlight,
+}
+
 pub trait Tool {
     fn handle_event(&mut self, event: ToolEvent) -> ToolUpdateResult {
         match event {
@@ -159,6 +166,25 @@ where
 }
 
 pub trait Drawable: DrawableClone + Debug {
+    fn get_spotlight(&self) -> SpotlightKind {
+        SpotlightKind::None
+    }
+    fn draw_spotlight(
+        &self,
+        canvas: &mut Canvas<OpenGl>,
+        bounds: (Vec2D, Vec2D),
+        boxes: &Vec<(Vec2D, Vec2D)>,
+        spotlight_preview: bool,
+        background_image_id: Option<femtovg::ImageId>,
+    ) {
+        let _ = (
+            canvas,
+            bounds,
+            boxes,
+            spotlight_preview,
+            background_image_id,
+        );
+    }
     fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
     -> Result<()>;
     fn handle_undo(&mut self) {}

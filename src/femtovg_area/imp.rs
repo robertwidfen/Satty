@@ -25,7 +25,7 @@ use crate::{
     configuration::Action,
     math::{Vec2D, rect_ensure_in_bounds, rect_round},
     sketch_board::SketchBoardInput,
-    tools::{Drawable, Tool, Tools},
+    tools::{Drawable, SpotlightKind, Tool, Tools},
 };
 
 use super::{font_stack, set_font_stack};
@@ -598,9 +598,67 @@ impl FemtoVgAreaMut {
                 self.background_image.height() as f32,
             ),
         );
+
         // Offscreen export should not include pointer selection handles.
         let draw_active_tool =
             onscreen || self.active_tool.borrow().get_tool_type() != Tools::Pointer;
+
+        // collect spotlight boxes
+        let mut spotlight_boxes: Vec<(Vec2D, Vec2D)> = Vec::new();
+        let mut spotlight_preview = false;
+        if let Some(preview) = self.active_tool.borrow().get_drawable()
+            && preview.get_spotlight() != SpotlightKind::None
+            && let Some(preview_bounds) = preview.bounds()
+        {
+            spotlight_boxes.push(preview_bounds);
+            spotlight_preview = true;
+        }
+
+        let mut first_blur_spotlight: Option<&Box<dyn Drawable>> = None;
+        let mut first_highlight_spotlight: Option<&Box<dyn Drawable>> = None;
+        for (i, d) in self.drawables.iter().enumerate() {
+            if self.hidden_drawable_index == Some(i) {
+                continue;
+            }
+            if d.get_spotlight() != SpotlightKind::None
+                && let Some(drawable_bounds) = d.bounds()
+            {
+                spotlight_boxes.push(drawable_bounds);
+            }
+            // find first spotlight of each kind
+            match d.get_spotlight() {
+                SpotlightKind::Blur if first_blur_spotlight.is_none() => {
+                    first_blur_spotlight = Some(d);
+                }
+                SpotlightKind::Highlight if first_highlight_spotlight.is_none() => {
+                    first_highlight_spotlight = Some(d);
+                }
+                _ => {}
+            }
+        }
+
+        // draw spotlight
+        if self.background_image_id.is_some() {
+            if let Some(d) = first_blur_spotlight {
+                d.draw_spotlight(
+                    canvas,
+                    bounds,
+                    &spotlight_boxes,
+                    spotlight_preview,
+                    self.background_image_id,
+                );
+            }
+            if let Some(d) = first_highlight_spotlight {
+                d.draw_spotlight(
+                    canvas,
+                    bounds,
+                    &spotlight_boxes,
+                    spotlight_preview,
+                    self.background_image_id,
+                );
+            }
+        }
+
         let mut active_tool_drawn_in_stack = false;
 
         // render the whole stack
@@ -611,12 +669,14 @@ impl FemtoVgAreaMut {
                     && let Some(preview) = self.active_tool.borrow().get_drawable()
                     && !preview.is_crop()
                 {
-                    preview.draw(canvas, font, bounds)?;
+                    if preview.get_spotlight() == SpotlightKind::None {
+                        preview.draw(canvas, font, bounds)?;
+                    }
                     active_tool_drawn_in_stack = true;
                 }
                 continue;
             }
-            if !d.is_crop() {
+            if !d.is_crop() && d.get_spotlight() == SpotlightKind::None {
                 d.draw(canvas, font, bounds)?;
             }
         }
