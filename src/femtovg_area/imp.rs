@@ -647,6 +647,9 @@ impl FemtoVgAreaMut {
 
         // render background image (screenshot)
         self.render_background_image(canvas, onscreen)?;
+        let background_image_id = self
+            .background_image_id_aliased
+            .expect("background image is uploaded before drawing layers");
 
         let bounds = (
             Vec2D::zero(),
@@ -663,22 +666,98 @@ impl FemtoVgAreaMut {
         // draw blur first, so it is below everything else
         for (i, d) in self.drawables.iter().enumerate() {
             if self.hidden_drawable_index != Some(i)
-                && d.get_rendering_mode() == RenderingMode::Blur
+                && d.get_rendering_mode() == RenderingMode::BlurOrPixelate
             {
-                d.draw_baselayer(canvas, &source_image, font, bounds)?;
+                d.draw_baselayer(canvas, &source_image, background_image_id, font, bounds)?;
             }
         }
 
         // draw blur preview
         if draw_active_tool
             && let Some(preview) = self.active_tool.borrow().get_drawable()
-            && preview.get_rendering_mode() == RenderingMode::Blur
+            && preview.get_rendering_mode() == RenderingMode::BlurOrPixelate
         {
-            preview.draw_baselayer(canvas, &source_image, font, bounds)?;
+            preview.draw_baselayer(canvas, &source_image, background_image_id, font, bounds)?;
             draw_active_tool = false;
         }
 
-        // draw the whole stack of normal drawables
+        // collect spotlight boxes
+        let mut spotlight_blur_boxes: Vec<(Vec2D, Vec2D)> = Vec::new();
+        let mut spotlight_highlight_boxes: Vec<(Vec2D, Vec2D)> = Vec::new();
+        let mut spotlight_preview = false;
+        let mut first_blur_spotlight: Option<&dyn Drawable> = None;
+        let mut first_highlight_spotlight: Option<&dyn Drawable> = None;
+        let mut preview_blur_spotlight: Option<Box<dyn Drawable>> = None;
+        let mut preview_highlight_spotlight: Option<Box<dyn Drawable>> = None;
+        if let Some(preview) = self.active_tool.borrow().get_drawable()
+            && matches!(
+                preview.get_rendering_mode(),
+                RenderingMode::SpotlightBlur | RenderingMode::SpotlightHighlight
+            )
+            && let Some(preview_bounds) = preview.bounds()
+        {
+            if preview.get_rendering_mode() == RenderingMode::SpotlightBlur {
+                preview_blur_spotlight = Some(preview.clone_box());
+                spotlight_blur_boxes.push(preview_bounds);
+                spotlight_preview = true;
+            } else if preview.get_rendering_mode() == RenderingMode::SpotlightHighlight {
+                preview_highlight_spotlight = Some(preview.clone_box());
+                spotlight_highlight_boxes.push(preview_bounds);
+            }
+            draw_active_tool = false; // it will be drawn in the spotlight section below
+        }
+
+        for (i, d) in self.drawables.iter().enumerate() {
+            if self.hidden_drawable_index == Some(i) {
+                continue;
+            }
+            if matches!(
+                d.get_rendering_mode(),
+                RenderingMode::SpotlightBlur | RenderingMode::SpotlightHighlight
+            ) && let Some(drawable_bounds) = d.bounds()
+            {
+                if d.get_rendering_mode() == RenderingMode::SpotlightBlur {
+                    spotlight_blur_boxes.push(drawable_bounds);
+                } else if d.get_rendering_mode() == RenderingMode::SpotlightHighlight {
+                    spotlight_highlight_boxes.push(drawable_bounds);
+                }
+            }
+            // find first spotlight of each kind
+            match d.get_rendering_mode() {
+                RenderingMode::SpotlightBlur if first_blur_spotlight.is_none() => {
+                    first_blur_spotlight = Some(d.as_ref());
+                }
+                RenderingMode::SpotlightHighlight if first_highlight_spotlight.is_none() => {
+                    first_highlight_spotlight = Some(d.as_ref());
+                }
+                _ => {}
+            }
+        }
+
+        // draw spotlight
+        let blur_spotlight_drawable = first_blur_spotlight.or(preview_blur_spotlight.as_deref());
+        if let Some(d) = blur_spotlight_drawable {
+            d.draw_spotlight(
+                canvas,
+                bounds,
+                &spotlight_blur_boxes,
+                spotlight_preview,
+                background_image_id,
+            );
+        }
+        let highlight_spotlight_drawable =
+            first_highlight_spotlight.or(preview_highlight_spotlight.as_deref());
+        if let Some(d) = highlight_spotlight_drawable {
+            d.draw_spotlight(
+                canvas,
+                bounds,
+                &spotlight_highlight_boxes,
+                spotlight_preview,
+                background_image_id,
+            );
+        }
+
+        // render the whole stack of normal drawables
         for (i, d) in self.drawables.iter().enumerate() {
             if self.hidden_drawable_index == Some(i) {
                 // draw the active tool preview in the original z position

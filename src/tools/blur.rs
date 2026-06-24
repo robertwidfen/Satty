@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use anyhow::Result;
-use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img};
+use femtovg::{ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::ImgVec, rgb::RGBA8};
 
 use relm4::Sender;
 
@@ -9,7 +9,7 @@ use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
-    tools::{RenderingMode, hit_test_rectangle},
+    tools::{RenderingMode, drag_box::draw_rect_marker, hit_test_rectangle},
 };
 
 use super::{
@@ -38,29 +38,13 @@ impl Blur {
 
     fn blur(
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
-        pos: Vec2D,
-        size: Vec2D,
+        source_size: Vec2D,
         sigma: f32,
+        source_image: ImageId,
     ) -> Result<ImageId> {
-        let img = canvas.screenshot()?;
-
-        let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
-        let transformed_size = size * canvas.transform().average_scale();
-
-        let (buf, width, height) = img
-            .sub_image(
-                transformed_pos.0 as usize,
-                transformed_pos.1 as usize,
-                (transformed_size.x as usize).max(1),
-                (transformed_size.y as usize).max(1),
-            )
-            .to_contiguous_buf();
-        let sub = Img::new(buf.into_owned(), width, height);
-
-        let src_image_id = canvas.create_image(sub.as_ref(), ImageFlags::empty())?;
         let dst_image_id = canvas.create_image_empty(
-            sub.width(),
-            sub.height(),
+            (source_size.x as usize).max(1),
+            (source_size.y as usize).max(1),
             femtovg::PixelFormat::Rgba8,
             ImageFlags::empty(),
         )?;
@@ -68,9 +52,8 @@ impl Blur {
         canvas.filter_image(
             dst_image_id,
             ImageFilter::GaussianBlur { sigma },
-            src_image_id,
+            source_image,
         );
-        //canvas.delete_image(src_image_id);
 
         Ok(dst_image_id)
     }
@@ -78,7 +61,11 @@ impl Blur {
 
 impl Drawable for Blur {
     fn get_rendering_mode(&self) -> RenderingMode {
-        RenderingMode::Blur
+        if self.style.fill {
+            RenderingMode::SpotlightBlur
+        } else {
+            RenderingMode::BlurOrPixelate
+        }
     }
 
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
@@ -89,7 +76,7 @@ impl Drawable for Blur {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        hit_test_rectangle(pos, self.top_left, self.size, tolerance, true)
+        hit_test_rectangle(pos, self.top_left, self.size, tolerance, !self.style.fill)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -116,7 +103,18 @@ impl Drawable for Blur {
 
     fn draw(
         &self,
+        _canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _font: femtovg::FontId,
+        _bounds: (Vec2D, Vec2D),
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    fn draw_baselayer(
+        &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _source_image: &ImgVec<RGBA8>,
+        background_image_id: ImageId,
         _font: femtovg::FontId,
         bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
@@ -125,51 +123,40 @@ impl Drawable for Blur {
             math::rect_ensure_positive_size(self.top_left, size),
             bounds,
         );
-        if self.editing {
-            // set style
-            let mut color = Color::black();
-            color.set_alphaf(0.6);
-            let paint = Paint::color(color);
+        let source_pos = bounds.0;
+        let source_size = bounds.1 - bounds.0;
 
-            // make rect
-            let mut path = Path::new();
-            path.rounded_rect(pos.x, pos.y, size.x, size.y, self.style.corner_radius());
-
-            // draw
-            canvas.fill_path(&path, &paint);
-        } else {
-            if size.x <= 0.0 || size.y <= 0.0 {
-                return Ok(());
-            }
-
-            // create new cached image
-            if self.cached_image.borrow().is_none() {
-                self.cached_image.borrow_mut().replace(Self::blur(
-                    canvas,
-                    pos,
-                    size,
-                    self.style
-                        .size
-                        .to_blur_factor(self.style.annotation_size_factor),
-                )?);
-            }
-
-            let mut path = Path::new();
-            path.rounded_rect(pos.x, pos.y, size.x, size.y, self.style.corner_radius());
-
-            canvas.fill_path(
-                &path,
-                &Paint::image(
-                    self.cached_image.borrow().unwrap(), // this unwrap is safe because we placed it above
-                    pos.x,
-                    pos.y,
-                    size.x,
-                    size.y,
-                    0f32,
-                    1f32,
-                ),
-            );
+        if size.x <= 0.0 || size.y <= 0.0 {
+            return Ok(());
         }
+
+        // create new cached image
+        if self.cached_image.borrow().is_none() {
+            self.cached_image.borrow_mut().replace(Self::blur(
+                canvas,
+                source_size,
+                self.style
+                    .size
+                    .to_blur_factor(self.style.annotation_size_factor),
+                background_image_id,
+            )?);
+        }
+
+        let mut path = Path::new();
+        path.rounded_rect(pos.x, pos.y, size.x, size.y, self.style.corner_radius());
+
+        canvas.fill_path(
+            &path,
+            &Paint::image(
+                self.cached_image.borrow().unwrap(), // this unwrap is safe because we placed it above
+                source_pos.x,
+                source_pos.y,
+                source_size.x,
+                source_size.y,
+                0f32,
+                1f32,
+            ),
+        );
 
         if self.editing && self.centered {
             draw_center_marker(canvas, self.origin);
@@ -184,6 +171,75 @@ impl Drawable for Blur {
     }
     fn set_editing(&mut self, editing: bool) {
         self.editing = editing;
+    }
+
+    fn draw_spotlight(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        bounds: (Vec2D, Vec2D),
+        boxes: &Vec<(Vec2D, Vec2D)>,
+        spotlight_preview: bool,
+        background_image_id: femtovg::ImageId,
+    ) {
+        let canvas_tl = bounds.0;
+        let canvas_size = bounds.1 - bounds.0;
+
+        if self.cached_image.borrow().is_none() {
+            // create new cached image
+            canvas.save();
+            canvas.flush();
+            self.cached_image.borrow_mut().replace(
+                Self::blur(
+                    canvas,
+                    canvas_size,
+                    self.style
+                        .size
+                        .to_blur_factor(self.style.annotation_size_factor),
+                    background_image_id,
+                )
+                .unwrap(),
+            );
+            canvas.restore();
+        }
+
+        if spotlight_preview {
+            for (tl, br) in boxes {
+                let (pos, size) = math::rect_ensure_in_bounds(
+                    math::rect_ensure_positive_size(*tl, *br - *tl),
+                    bounds,
+                );
+                draw_rect_marker(canvas, pos, size, false);
+            }
+        } else {
+            let mut path = Path::new();
+            path.rect(canvas_tl.x, canvas_tl.y, canvas_size.x, canvas_size.y);
+            for (tl, br) in boxes {
+                let (pos, size) = math::rect_ensure_in_bounds(
+                    math::rect_ensure_positive_size(*tl, *br - *tl),
+                    bounds,
+                );
+
+                path.rounded_rect(pos.x, pos.y, size.x, size.y, self.style.corner_radius());
+            }
+
+            canvas.fill_path(
+                &path,
+                &Paint::image(
+                    self.cached_image.borrow().unwrap(),
+                    canvas_tl.x,
+                    canvas_tl.y,
+                    canvas_size.x,
+                    canvas_size.y,
+                    0f32,
+                    1f32,
+                )
+                .with_fill_rule(femtovg::FillRule::EvenOdd),
+            );
+
+            if self.editing && self.centered {
+                draw_center_marker(canvas, self.origin);
+            }
+        }
     }
 }
 
@@ -238,16 +294,20 @@ impl Tool for BlurTool {
                 }
 
                 if let Some(a) = &mut self.blur {
+                    a.editing = false;
                     if event.pos == Vec2D::zero() {
                         self.blur = None;
 
                         ToolUpdateResult::Redraw
                     } else {
                         a.calculate_shape(self.sender.as_ref().unwrap(), &event);
-                        a.editing = false;
 
                         let result = a.clone_box();
                         self.blur = None;
+
+                        if event.pos.x.abs() <= 0.0 && event.pos.y.abs() <= 0.0 {
+                            return ToolUpdateResult::Unmodified;
+                        }
 
                         ToolUpdateResult::Commit(result)
                     }
