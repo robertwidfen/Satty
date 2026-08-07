@@ -2,17 +2,13 @@ use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 use crate::{
     math::{self, Vec2D},
     sketch_board::{
-        KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput,
-        SketchBoardOutput,
+        MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput, SketchBoardOutput,
     },
     tools::hit_test_rectangle,
 };
 use anyhow::Result;
 use femtovg::{Color, Paint, Path};
-use relm4::{
-    Sender,
-    gtk::gdk::{Key, ModifierType},
-};
+use relm4::{Sender, gtk::gdk::ModifierType};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Crop {
@@ -129,26 +125,6 @@ impl Tool for CropTool {
 
     fn get_tool_type(&self) -> super::Tools {
         Tools::Crop
-    }
-
-    fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
-        match event.key {
-            Key::Escape if let Some(crop) = &self.crop => {
-                if crop.active {
-                    ToolUpdateResult::RedrawAndStopPropagation
-                } else {
-                    ToolUpdateResult::Unmodified
-                }
-            }
-            Key::Return if let Some(crop) = &self.crop => {
-                if crop.active {
-                    self.handle_deactivated()
-                } else {
-                    ToolUpdateResult::Unmodified
-                }
-            }
-            _ => ToolUpdateResult::Unmodified,
-        }
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
