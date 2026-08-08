@@ -82,6 +82,7 @@ impl Drawable for Line {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
+        _background_image_id: Option<femtovg::ImageId>,
     ) -> Result<()> {
         let direction = match self.direction {
             Some(d) => d,

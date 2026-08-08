@@ -176,8 +176,13 @@ pub trait Drawable: DrawableClone + Debug {
             background_image_id,
         );
     }
-    fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
-    -> Result<()>;
+    fn draw(
+        &self,
+        canvas: &mut Canvas<OpenGl>,
+        font: FontId,
+        bounds: (Vec2D, Vec2D),
+        background_image_id: Option<femtovg::ImageId>,
+    ) -> Result<()>;
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
     fn is_crop(&self) -> bool {

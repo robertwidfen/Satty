@@ -689,14 +689,14 @@ impl FemtoVgAreaMut {
                 if draw_active_tool && let Some(preview) = self.active_tool.borrow().get_drawable()
                 {
                     if preview.get_spotlight() == SpotlightKind::None {
-                        preview.draw(canvas, font, bounds)?;
+                        preview.draw(canvas, font, bounds, self.background_image_id)?;
                     }
                     active_tool_drawn_in_stack = true;
                 }
                 continue;
             }
             if d.get_spotlight() == SpotlightKind::None {
-                d.draw(canvas, font, bounds)?;
+                d.draw(canvas, font, bounds, self.background_image_id)?;
             }
         }
 
@@ -705,7 +705,7 @@ impl FemtoVgAreaMut {
             && !active_tool_drawn_in_stack
             && let Some(d) = self.active_tool.borrow().get_drawable()
         {
-            d.draw(canvas, font, bounds)?;
+            d.draw(canvas, font, bounds, self.background_image_id)?;
         }
 
         canvas.flush();
