@@ -861,6 +861,11 @@ impl SketchBoard {
         me: &MouseEventMsg,
         sender: &ComponentSender<Self>,
     ) -> ToolUpdateResult {
+        if matches!(me.type_, MouseEventType::Click | MouseEventType::BeginDrag) {
+            // text input requires focus, so we grab it on click or drag begin
+            self.renderer.grab_focus();
+        }
+
         if self.active_tool_type() == Tools::Pointer {
             if me.type_ == MouseEventType::Click && me.n_pressed == 2 {
                 self.handle_pointer_tool_double_click(me.pos, sender)
@@ -1068,21 +1073,17 @@ impl SketchBoard {
 
                 // deactivate old tool and save drawable, if any
                 let old_tool = self.active_tool.clone();
-                let mut deactivate_result =
-                    old_tool.borrow_mut().handle_event(ToolEvent::Deactivated);
 
                 old_tool.borrow_mut().set_im_context(None);
 
                 // If we were in the pointer tool, ensure the hidden drawable is restored
                 self.renderer.set_hidden_drawable_index(None);
 
-                if let ToolUpdateResult::Commit(d) = deactivate_result {
-                    self.renderer.commit(d);
-                    if APP_CONFIG.read().auto_copy() {
-                        self.renderer.request_render(&[Action::SaveToClipboard]);
-                    }
-                    // we handle commit directly and "downgrade" to a simple redraw result
-                    deactivate_result = ToolUpdateResult::Redraw;
+                // handles also commit
+                self.deactivate_active_tool();
+
+                if APP_CONFIG.read().auto_copy() {
+                    self.renderer.request_render(&[Action::SaveToClipboard]);
                 }
 
                 // change active tool
@@ -1104,18 +1105,7 @@ impl SketchBoard {
                 // send style event
                 self.active_tool
                     .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style));
-
-                // send activated event
-                let activate_result = self
-                    .active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::Activated);
-
-                match activate_result {
-                    ToolUpdateResult::Unmodified => deactivate_result,
-                    _ => activate_result,
-                }
+                    .handle_event(ToolEvent::StyleChanged(self.style))
             }
             ToolbarEvent::ColorSelected(color) => {
                 self.style.color = color;
@@ -1149,8 +1139,6 @@ impl SketchBoard {
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::Resize => self.handle_resize(),
             ToolbarEvent::OriginalScale => self.handle_original_scale(),
-            ToolbarEvent::ToolCommit => self.active_tool.borrow_mut().handle_deactivated(),
-            ToolbarEvent::ToolDismiss => self.active_tool.borrow_mut().handle_dismissed(),
         }
     }
 

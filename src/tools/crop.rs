@@ -135,7 +135,7 @@ impl Tool for CropTool {
         match event.key {
             Key::Escape if let Some(crop) = &self.crop => {
                 if crop.active {
-                    self.handle_dismissed()
+                    ToolUpdateResult::RedrawAndStopPropagation
                 } else {
                     ToolUpdateResult::Unmodified
                 }
@@ -156,14 +156,6 @@ impl Tool for CropTool {
         match event.type_ {
             MouseEventType::Click if event.button == MouseButton::Primary && ctrl_pressed => {
                 self.handle_deactivated()
-            }
-            MouseEventType::Click
-                if event.button == MouseButton::Secondary
-                    && ctrl_pressed
-                    && let Some(crop) = &self.crop
-                    && crop.active =>
-            {
-                self.handle_dismissed()
             }
             MouseEventType::BeginDrag if event.button == MouseButton::Primary && !ctrl_pressed => {
                 self.dragging = true;
