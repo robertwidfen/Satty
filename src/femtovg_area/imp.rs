@@ -620,7 +620,7 @@ impl FemtoVgAreaMut {
             if self.hidden_drawable_index != Some(i)
                 && d.get_rendering_mode() == RenderingMode::Blur
             {
-                d.draw(canvas, font, bounds)?;
+                d.draw(canvas, font, bounds, self.background_image_id)?;
             }
         }
 
@@ -629,7 +629,7 @@ impl FemtoVgAreaMut {
             && let Some(preview) = self.active_tool.borrow().get_drawable()
             && preview.get_rendering_mode() == RenderingMode::Blur
         {
-            preview.draw(canvas, font, bounds)?;
+            preview.draw(canvas, font, bounds, self.background_image_id)?;
             draw_active_tool = false;
         }
 
@@ -720,19 +720,19 @@ impl FemtoVgAreaMut {
                     && let Some(preview) = self.active_tool.borrow().get_drawable()
                     && preview.get_rendering_mode() == RenderingMode::Default
                 {
-                    preview.draw(canvas, font, bounds)?;
+                    preview.draw(canvas, font, bounds, self.background_image_id)?;
                     draw_active_tool = false;
                 }
                 continue;
             }
             if d.get_rendering_mode() == RenderingMode::Default {
-                d.draw(canvas, font, bounds)?;
+                d.draw(canvas, font, bounds, self.background_image_id)?;
             }
         }
 
         // draw active tool when not already drawn in stack order
         if draw_active_tool && let Some(preview) = self.active_tool.borrow().get_drawable() {
-            preview.draw(canvas, font, bounds)?;
+            preview.draw(canvas, font, bounds, self.background_image_id)?;
         }
 
         // draw crop on top of everything but pointer tool selection overlay
@@ -740,7 +740,7 @@ impl FemtoVgAreaMut {
             if self.hidden_drawable_index != Some(i)
                 && d.get_rendering_mode() == RenderingMode::Crop
             {
-                d.draw(canvas, font, bounds)?;
+                d.draw(canvas, font, bounds, self.background_image_id)?;
             }
         }
 
@@ -749,7 +749,7 @@ impl FemtoVgAreaMut {
             && let Some(d) = self.active_tool.borrow().get_drawable()
             && d.get_rendering_mode() == RenderingMode::SelectionOverlay
         {
-            d.draw(canvas, font, bounds)?;
+            d.draw(canvas, font, bounds, self.background_image_id)?;
         }
 
         canvas.flush();
