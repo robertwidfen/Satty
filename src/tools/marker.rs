@@ -106,6 +106,7 @@ impl Drawable for Marker {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         font: femtovg::FontId,
         _bounds: (Vec2D, Vec2D),
+        _background_image_id: Option<femtovg::ImageId>,
     ) -> anyhow::Result<()> {
         let text = format!("{}", self.number);
 

@@ -285,6 +285,7 @@ impl Drawable for Text {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         font: FontId,
         _bounds: (Vec2D, Vec2D),
+        _background_image_id: Option<femtovg::ImageId>,
     ) -> Result<()> {
         let gtext = self.get_text();
         let base_text = gtext.as_str();

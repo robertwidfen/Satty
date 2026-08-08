@@ -670,21 +670,21 @@ impl FemtoVgAreaMut {
                     && !preview.is_crop()
                 {
                     if preview.get_spotlight() == SpotlightKind::None {
-                        preview.draw(canvas, font, bounds)?;
+                        preview.draw(canvas, font, bounds, self.background_image_id)?;
                     }
                     active_tool_drawn_in_stack = true;
                 }
                 continue;
             }
             if !d.is_crop() && d.get_spotlight() == SpotlightKind::None {
-                d.draw(canvas, font, bounds)?;
+                d.draw(canvas, font, bounds, self.background_image_id)?;
             }
         }
 
         // draw crop bounds on top
         for (i, d) in self.drawables.iter().enumerate() {
             if self.hidden_drawable_index != Some(i) && d.is_crop() {
-                d.draw(canvas, font, bounds)?;
+                d.draw(canvas, font, bounds, self.background_image_id)?;
             }
         }
 
@@ -693,7 +693,7 @@ impl FemtoVgAreaMut {
             && !active_tool_drawn_in_stack
             && let Some(d) = self.active_tool.borrow().get_drawable()
         {
-            d.draw(canvas, font, bounds)?;
+            d.draw(canvas, font, bounds, self.background_image_id)?;
         }
 
         canvas.flush();

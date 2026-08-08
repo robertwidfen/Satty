@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use anyhow::Result;
-use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img};
+use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path};
 
 use relm4::{Sender, gtk::gdk::ModifierType};
 
@@ -39,38 +39,19 @@ impl Blur {
 
     fn blur(
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
-        pos: Vec2D,
-        size: Vec2D,
+        source_size: Vec2D,
         sigma: f32,
         background_image_id: Option<ImageId>,
     ) -> Result<ImageId> {
-        let (src_image_id, width, height) = if let Some(background_image_id) = background_image_id {
-            (background_image_id, size.x as usize, size.y as usize)
-        } else {
-            let img = canvas.screenshot()?;
-
-            let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
-            let transformed_size = size * canvas.transform().average_scale();
-
-            let (buf, width, height) = img
-                .sub_image(
-                    transformed_pos.0 as usize,
-                    transformed_pos.1 as usize,
-                    (transformed_size.x as usize).max(1),
-                    (transformed_size.y as usize).max(1),
-                )
-                .to_contiguous_buf();
-            let sub = Img::new(buf.into_owned(), width, height);
-            (
-                canvas.create_image(sub.as_ref(), ImageFlags::empty())?,
-                sub.width(),
-                sub.height(),
-            )
+        let Some(background_image_id) = background_image_id else {
+            return Err(anyhow::anyhow!(
+                "Background image ID is required for blur operation"
+            ));
         };
 
         let dst_image_id = canvas.create_image_empty(
-            width,
-            height,
+            (source_size.x as usize).max(1),
+            (source_size.y as usize).max(1),
             femtovg::PixelFormat::Rgba8,
             ImageFlags::empty(),
         )?;
@@ -78,7 +59,7 @@ impl Blur {
         canvas.filter_image(
             dst_image_id,
             ImageFilter::GaussianBlur { sigma },
-            src_image_id,
+            background_image_id,
         );
 
         Ok(dst_image_id)
@@ -133,6 +114,7 @@ impl Drawable for Blur {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: femtovg::FontId,
         bounds: (Vec2D, Vec2D),
+        background_image_id: Option<femtovg::ImageId>,
     ) -> Result<()> {
         let size = match self.size {
             Some(s) => s,
@@ -142,6 +124,9 @@ impl Drawable for Blur {
             math::rect_ensure_positive_size(self.top_left, size),
             bounds,
         );
+        let source_pos = bounds.0;
+        let source_size = bounds.1 - bounds.0;
+
         if self.editing {
             if self.centered {
                 draw_center_marker(canvas, self.origin);
@@ -186,12 +171,11 @@ impl Drawable for Blur {
             if self.cached_image.borrow().is_none() {
                 self.cached_image.borrow_mut().replace(Self::blur(
                     canvas,
-                    pos,
-                    size,
+                    source_size,
                     self.style
                         .size
                         .to_blur_factor(self.style.annotation_size_factor),
-                    None,
+                    background_image_id,
                 )?);
             }
 
@@ -208,10 +192,10 @@ impl Drawable for Blur {
                 &path,
                 &Paint::image(
                     self.cached_image.borrow().unwrap(), // this unwrap is safe because we placed it above
-                    pos.x,
-                    pos.y,
-                    size.x,
-                    size.y,
+                    source_pos.x,
+                    source_pos.y,
+                    source_size.x,
+                    source_size.y,
                     0f32,
                     1f32,
                 ),
@@ -239,7 +223,6 @@ impl Drawable for Blur {
             self.cached_image.borrow_mut().replace(
                 Self::blur(
                     canvas,
-                    canvas_tl,
                     canvas_size,
                     self.style
                         .size
