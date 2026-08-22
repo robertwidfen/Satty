@@ -390,6 +390,14 @@ impl FemtoVgAreaMut {
         self.drawables.get(index).map(|d| d.clone_box())
     }
 
+    pub fn find_drawable_index_by_mode(&self, mode: RenderingMode) -> Option<usize> {
+        self.drawables
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(index, drawable)| (drawable.get_rendering_mode() == mode).then_some(index))
+    }
+
     pub fn replace_drawable(&mut self, index: usize, drawable: Box<dyn Drawable>) {
         if index < self.drawables.len() {
             self.drawables[index] = drawable;
