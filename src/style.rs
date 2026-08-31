@@ -268,9 +268,9 @@ impl Size {
 
     pub fn to_blur_factor(self, size_factor: f32) -> f32 {
         match self {
-            Size::Small => 10.0 * size_factor,
-            Size::Medium => 20.0 * size_factor,
-            Size::Large => 30.0 * size_factor,
+            Size::Small => 4.0 * size_factor.min(10.0),
+            Size::Medium => 8.0 * size_factor.min(10.0),
+            Size::Large => 16.0 * size_factor.min(10.0),
         }
     }
 
