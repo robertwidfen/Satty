@@ -68,13 +68,52 @@ impl ResizeHandle {
     pub fn resize(&self, event: MouseEventMsg, tl: Vec2D, br: Vec2D) -> (Vec2D, Vec2D) {
         let mut new_tl = tl;
         let mut new_br = br;
-        let delta = event.pos;
+        let mut delta = event.pos;
 
+        let keep_aspect = event.modifier.intersects(ModifierType::CONTROL_MASK);
         let centered = event.modifier.intersects(ModifierType::ALT_MASK);
         let uniform = event.modifier.intersects(ModifierType::SHIFT_MASK);
 
-        // keep center fixed if Alt is held down
         type RH = ResizeHandle;
+
+        // keep aspect ratio if Ctrl is held down on corners
+        if keep_aspect {
+            let size = br - tl;
+            let aspect_ratio = size.x.abs() / size.y.abs();
+            match self {
+                RH::BottomRight => {
+                    if delta.x / aspect_ratio >= delta.y {
+                        delta.y = delta.x / aspect_ratio;
+                    } else {
+                        delta.x = delta.y * aspect_ratio;
+                    }
+                }
+                RH::TopLeft => {
+                    if delta.x / aspect_ratio <= delta.y {
+                        delta.y = delta.x / aspect_ratio;
+                    } else {
+                        delta.x = delta.y * aspect_ratio;
+                    }
+                }
+                RH::TopRight => {
+                    if delta.x / aspect_ratio >= -delta.y {
+                        delta.y = -delta.x / aspect_ratio;
+                    } else {
+                        delta.x = -delta.y * aspect_ratio;
+                    }
+                }
+                RH::BottomLeft => {
+                    if delta.x / aspect_ratio <= -delta.y {
+                        delta.y = -delta.x / aspect_ratio;
+                    } else {
+                        delta.x = -delta.y * aspect_ratio;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // keep center fixed if Alt is held down
         match self {
             RH::TopRight => {
                 new_tl.y += delta.y;
