@@ -15,15 +15,16 @@ impl DragBox {
         let centered = modifier.intersects(ModifierType::ALT_MASK);
         let uniform = modifier.intersects(ModifierType::SHIFT_MASK);
 
+        let size_factor = if centered { 2.0 } else { 1.0 };
         let size = if uniform {
-            let max_size = delta.x.abs().max(delta.y.abs());
+            let max_size = delta.x.abs().max(delta.y.abs()) * size_factor;
             Vec2D::new(max_size * delta.x.signum(), max_size * delta.y.signum())
         } else {
-            delta
+            delta * size_factor
         };
 
         let top_left = if centered {
-            origin - size * 0.5
+            origin.min(origin - size.abs() / size_factor)
         } else {
             origin.min(origin + size)
         };

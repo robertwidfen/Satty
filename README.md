@@ -109,6 +109,8 @@ Newly created annotations can be autoselected if enabled in the config.
 - Hold <kbd>Alt</kbd> while clicking to select between overlapping annotations.
 - <kbd>Delete</kbd> deletes the selected annotation.
 - Drag the resize handles - mouse cursor will change - to change the size. 
+  - Hold <kbd>Alt</kbd> for centered resize
+  - Hold <kbd>Shift</kbd> for uniform resize
 - Grab an annotation - mouse cursor will change to a hand - to move.
 - Scroll up/down with the mouse wheel to change the annotation's layer.
 - Nudge (small move) with the cursor keys.

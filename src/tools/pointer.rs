@@ -66,89 +66,100 @@ impl ResizeHandle {
     // This intentionally preserves axis inversion (tl may become > br) so tools like
     // line/arrow can keep endpoint intent when crossing over an axis.
     pub fn resize(&self, event: MouseEventMsg, tl: Vec2D, br: Vec2D) -> (Vec2D, Vec2D) {
-        let mut delta = event.pos;
-
-        if event.modifier & ModifierType::SHIFT_MASK != ModifierType::empty() {
-            (delta.x, delta.y) = match self {
-                ResizeHandle::TopRight => {
-                    let x = delta.x.max(-delta.y);
-                    (x, -x)
-                }
-                ResizeHandle::BottomRight => {
-                    let x = delta.x.max(delta.y);
-                    (x, x)
-                }
-                ResizeHandle::BottomLeft => {
-                    let x = delta.x.min(-delta.y);
-                    (x, -x)
-                }
-                ResizeHandle::TopLeft => {
-                    let x = delta.x.min(delta.y);
-                    (x, x)
-                }
-                _ => (delta.x, delta.y),
-            };
-        }
-
-        let is_centered = event.modifier & ModifierType::ALT_MASK != ModifierType::empty();
-        if is_centered {
-            delta = delta / 2.0;
-        }
-
         let mut new_tl = tl;
         let mut new_br = br;
+        let delta = event.pos;
 
+        let centered = event.modifier.intersects(ModifierType::ALT_MASK);
+        let uniform = event.modifier.intersects(ModifierType::SHIFT_MASK);
+
+        // keep center fixed if Alt is held down
+        type RH = ResizeHandle;
         match self {
-            ResizeHandle::TopRight => {
+            RH::TopRight => {
                 new_tl.y += delta.y;
                 new_br.x += delta.x;
-                if is_centered {
+                if centered {
                     new_tl.x -= delta.x;
                     new_br.y -= delta.y;
                 }
             }
-            ResizeHandle::MiddleRight => {
+            RH::MiddleRight => {
                 new_br.x += delta.x;
-                if is_centered {
+                if centered {
                     new_tl.x -= delta.x;
                 }
             }
-            ResizeHandle::BottomRight => {
+            RH::BottomRight => {
                 new_br += delta;
-                if is_centered {
+                if centered {
                     new_tl -= delta;
                 }
             }
-            ResizeHandle::BottomCenter => {
+            RH::BottomCenter => {
                 new_br.y += delta.y;
-                if is_centered {
+                if centered {
                     new_tl.y -= delta.y;
                 }
             }
-            ResizeHandle::BottomLeft => {
+            RH::BottomLeft => {
                 new_tl.x += delta.x;
                 new_br.y += delta.y;
-                if is_centered {
+                if centered {
                     new_tl.y -= delta.y;
                     new_br.x -= delta.x;
                 }
             }
-            ResizeHandle::MiddleLeft => {
+            RH::MiddleLeft => {
                 new_tl.x += delta.x;
-                if is_centered {
+                if centered {
                     new_br.x -= delta.x;
                 }
             }
-            ResizeHandle::TopCenter => {
+            RH::TopCenter => {
                 new_tl.y += delta.y;
-                if is_centered {
+                if centered {
                     new_br.y -= delta.y;
                 }
             }
-            ResizeHandle::TopLeft => {
+            RH::TopLeft => {
                 new_tl += delta;
-                if is_centered {
+                if centered {
                     new_br -= delta;
+                }
+            }
+        }
+
+        // keep square if Shift is held down
+        if uniform {
+            let w = new_br.x - new_tl.x;
+            let h = new_br.y - new_tl.y;
+            let size = match self {
+                RH::TopCenter | RH::BottomCenter => h,
+                RH::MiddleLeft | RH::MiddleRight => w,
+                _ => w.max(h),
+            };
+            if centered {
+                let center = Vec2D::new(new_tl.x + new_br.x, new_tl.y + new_br.y) / 2.0;
+                let size_half = size / 2.0;
+                new_tl = center - size_half;
+                new_br = center + size_half;
+            } else {
+                match self {
+                    RH::TopLeft | RH::TopCenter | RH::MiddleLeft => {
+                        new_tl = new_br - size;
+                    }
+                    RH::TopRight => {
+                        new_br.x = new_tl.x + size;
+                        new_tl.y = new_br.y - size;
+                    }
+                    RH::BottomRight | RH::BottomCenter | RH::MiddleRight => {
+                        new_br = new_tl + size;
+                    }
+                    RH::BottomLeft => {
+                        new_tl.x = new_br.x - size;
+                        new_br.y = new_tl.y + size;
+                    }
                 }
             }
         }
