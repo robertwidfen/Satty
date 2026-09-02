@@ -56,32 +56,6 @@ impl Pixelate {
         )
     }
 
-    fn fringe_area_in_bounds(
-        &self,
-        canvas: &femtovg::Canvas<femtovg::renderer::OpenGl>,
-        pos: Vec2D,
-        size: Vec2D,
-    ) -> bool {
-        let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
-        let average_scale = canvas.transform().average_scale();
-        let transformed_size = size * average_scale;
-
-        let blocksize = self
-            .style
-            .size
-            .to_blocksize(self.style.annotation_size_factor);
-
-        let pos_x = transformed_pos.0 as usize;
-        let pos_y = transformed_pos.1 as usize;
-        let width = (transformed_size.x as usize / blocksize) * blocksize;
-        let height = (transformed_size.y as usize / blocksize) * blocksize;
-
-        pos_x >= 1
-            && pos_y >= 1
-            && pos_x + width < canvas.width() as usize
-            && pos_y + height < canvas.height() as usize
-    }
-
     fn calculate_shape(&mut self, pos: Vec2D, modifier: ModifierType) {
         let drag_box = DragBox::from_origin_delta(self.origin, pos, modifier);
         self.centered = drag_box.centered;
@@ -102,7 +76,8 @@ impl Pixelate {
         let blocksize = self
             .style
             .size
-            .to_blocksize(self.style.annotation_size_factor);
+            .to_blocksize(self.style.annotation_size_factor)
+            .min(size.x.min(size.y) as usize);
 
         let pos_x = transformed_pos.0 as usize;
         let pos_y = transformed_pos.1 as usize;
@@ -147,15 +122,17 @@ impl Pixelate {
         width: usize,
         height: usize,
     ) -> Result<Option<Cow<'_, [RGBA8]>>> {
-        // this shouldn't happen, because we check if draw can be performed before this runs.
-        // since .sub_image panics, leave this in anyway.
-        if pos_x < 1
-            || pos_y < 1
-            || canvas.width() as usize <= pos_x + width
-            || canvas.height() as usize <= pos_y + height
-        {
+        let pos_x = pos_x.max(1).min(canvas.width() as usize - 1);
+        let pos_y = pos_y.max(1).min(canvas.height() as usize - 1);
+        let width = width.min(canvas.width() as usize - pos_x);
+        let height = height.min(canvas.height() as usize - pos_y);
+
+        if width < 2 || height < 2 {
             return Ok(None);
         }
+
+        let width = width + 1;
+        let height = height + 1;
 
         let img = canvas.screenshot()?;
 
@@ -318,40 +295,21 @@ impl Drawable for Pixelate {
             Some(s) => s,
             None => return Ok(()), // early exit if none
         };
-        let blocksize = self
-            .style
-            .size
-            .to_blocksize(self.style.annotation_size_factor);
         let (pos, size) = math::rect_ensure_in_bounds(
             math::rect_ensure_positive_size(self.top_left, size),
             bounds,
         );
-        let big_enough = if self.is_pixelate() {
-            size.x >= blocksize as f32 && size.y >= blocksize as f32
-        } else {
-            size.x.abs() > f32::EPSILON && size.y.abs() > f32::EPSILON
-        };
-        let fringe_ok = !self.is_fringe() || self.fringe_area_in_bounds(canvas, pos, size);
 
-        let can_perform = big_enough && fringe_ok;
-        self.renderable.set(can_perform);
+        self.renderable.set(true);
         if self.editing {
             if self.centered {
                 draw_center_marker(canvas, self.origin);
             }
             // set style
-            let mut color = if can_perform {
-                Color::white()
-            } else {
-                Color::rgb(255, 0, 0)
-            };
-            let border_color = if can_perform {
-                Color::black()
-            } else {
-                Color::rgb(0, 255, 255)
-            };
+            let mut color = Color::white();
             color.set_alphaf(0.6);
             let paint = Paint::color(color);
+            let border_color = Color::rgb(255, 0, 0);
             let paint_border = Paint::color(border_color);
 
             // make rect
@@ -362,10 +320,6 @@ impl Drawable for Pixelate {
             canvas.fill_path(&path, &paint);
             canvas.stroke_path(&path, &paint_border);
         } else {
-            if !can_perform {
-                return Ok(());
-            }
-
             canvas.save();
             canvas.flush();
 
