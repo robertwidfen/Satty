@@ -385,10 +385,16 @@ impl SketchBoard {
 
     fn deactivate_active_tool(&mut self) -> bool {
         if self.active_tool.borrow().active()
-            && let ToolUpdateResult::Commit(result) =
+            && let ToolUpdateResult::Commit(drawable) =
                 self.active_tool.borrow_mut().handle_deactivated()
         {
-            self.renderer.commit(result);
+            if let Some((tl, br)) = drawable.bounds()
+                && (br - tl).area() <= 4.0
+            {
+                println!("Deactivating active tool, but drawable is too small, ignoring commit.");
+                return true;
+            };
+            self.renderer.commit(drawable);
             return true;
         }
         false
@@ -1793,6 +1799,15 @@ impl Component for SketchBoard {
 
         match result {
             ToolUpdateResult::Commit(drawable) => {
+                if let Some((tl, br)) = drawable.bounds()
+                    && (br - tl).area() <= 4.0
+                {
+                    println!(
+                        "Deactivating active tool, but drawable is too small, ignoring commit."
+                    );
+
+                    // return;
+                };
                 self.renderer.commit(drawable);
                 let auto_select = APP_CONFIG.read().auto_select();
 
