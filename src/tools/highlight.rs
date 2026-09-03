@@ -24,10 +24,18 @@ use super::{
     drag_box::{DragBox, draw_center_marker},
 };
 
-fn get_highlight_opacity(size: Size) -> f64 {
+fn get_highlight_opacity(size: Size) -> f32 {
     match size {
         Size::Small => 0.2,
         Size::Medium => 0.4,
+        Size::Large => 0.8,
+    }
+}
+
+fn get_spotlight_opacity(size: Size) -> f32 {
+    match size {
+        Size::Small => 0.4,
+        Size::Medium => 0.6,
         Size::Large => 0.8,
     }
 }
@@ -328,7 +336,10 @@ impl Drawable for HighlightKind {
         }
 
         let mut color = Color::black();
-        color.set_alphaf(0.6);
+        color.set_alphaf(
+            self.get_style()
+                .map_or(0.6, |s| get_spotlight_opacity(s.size)),
+        );
         let paint = Paint::color(color).with_fill_rule(femtovg::FillRule::EvenOdd);
 
         canvas.fill_path(&path, &paint);
