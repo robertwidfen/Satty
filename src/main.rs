@@ -687,7 +687,7 @@ fn main() -> Result<()> {
     // run the application
     match run_satty() {
         Err(e) => {
-            eprintln!("Error: {e}");
+            notification::log_error(&format!("Error: {e}"));
             Err(e)
         }
         Ok(v) => Ok(v),

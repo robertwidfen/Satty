@@ -5,6 +5,7 @@ use femtovg::rgb::{ComponentBytes, RGBA};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gdk_pixbuf::glib::Bytes;
 use std::cell::{Cell, RefCell};
+use std::io::IsTerminal;
 use std::io::Write;
 use std::panic;
 use std::path::{Path, PathBuf};
@@ -23,7 +24,7 @@ use crate::image_loading;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::keybindings::{ActionTrigger, ShortcutCommand, ShortcutRegistry};
 use crate::math::{Vec2D, crop_rect_in_bounds};
-use crate::notification::{log_result, log_result_with_pixbuf};
+use crate::notification::{log_error, log_result, log_result_with_pixbuf};
 use crate::style::{Color, Size, Style};
 use crate::tools::{
     ImagePlacement, PointerTool, RenderingMode, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools,
@@ -310,10 +311,7 @@ fn pixbuf_from_file_list(file_list: &gdk::FileList) -> Option<Pixbuf> {
     match image_loading::pixbuf_from_file(&path) {
         Ok(pixbuf) => Some(pixbuf),
         Err(e) => {
-            log_result(
-                &format!("Error loading image: {e}"),
-                !APP_CONFIG.read().disable_notifications(),
-            );
+            log_error(&format!("Error loading image: {e}"));
             None
         }
     }
@@ -558,7 +556,7 @@ impl SketchBoard {
                 home_dir.push(tilde_stripped);
                 output_filename = home_dir.to_string_lossy().into_owned();
             } else {
-                log_result("~ found but could not determine homedir", true);
+                log_error("~ found but could not determine homedir");
                 return None;
             }
         }
@@ -641,10 +639,7 @@ impl SketchBoard {
 
         // TODO: we could support more data types
         if output_filename != "-" && !output_filename.ends_with(".png") {
-            log_result(
-                "The only supported format is png, but the filename does not end in png",
-                true,
-            );
+            log_error("The only supported format is png, but the filename does not end in png");
             return;
         }
 
@@ -666,7 +661,7 @@ impl SketchBoard {
             return;
         }
         match fs::write(&output_filename, data) {
-            Err(e) => log_result(&format!("Error while saving file: {e}"), true),
+            Err(e) => log_error(&format!("Error while saving file: {e}")),
             Ok(_) => {
                 // Store the filepath for copy-filepath action
                 *self.last_saved_filepath.borrow_mut() = Some(output_filename.clone());
@@ -742,7 +737,7 @@ impl SketchBoard {
                     };
 
                     match fs::write(&output_filename, &data) {
-                        Err(e) => log_result(&format!("Error while saving file: {e}"), true),
+                        Err(e) => log_error(&format!("Error while saving file: {e}")),
                         Ok(_) => {
                             exit_app = APP_CONFIG.read().early_exit_save_as();
                             filename = Some(output_filename.clone());
@@ -855,7 +850,7 @@ impl SketchBoard {
         };
 
         match result {
-            Err(e) => log_result(&format!("Error copying filepath: {e}"), true),
+            Err(e) => log_error(&format!("Error copying filepath: {e}")),
             Ok(()) => log_result(&format!("Filepath copied to clipboard: {}", filepath), true),
         }
     }
@@ -2147,7 +2142,16 @@ impl Component for SketchBoard {
                 error_count,
                 if error_count == 1 { "" } else { "s" }
             );
+            if !std::io::stdout().is_terminal() {
+                log_error(&format!(
+                    "⚠️ {} error{} occurred during configuration loading. \
+                     Please run from terminal and check the output!",
+                    error_count,
+                    if error_count == 1 { "" } else { "s" }
+                ));
+            }
         }
+
         ComponentParts { model, widgets }
     }
 }
