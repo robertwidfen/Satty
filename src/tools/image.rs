@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use anyhow::Result;
-use femtovg::{Color, ImageId, Paint, Path};
+use femtovg::{Color, ImageFlags, ImageId, Paint, Path};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::prelude::*;
 use relm4::{RelmWidgetExt, Sender, gtk};
@@ -182,7 +182,7 @@ impl Drawable for Image {
         let image_id = match self.cached_image_id.get() {
             Some(id) => id,
             None => {
-                let id = create_image_from_pixbuf(canvas, &self.pixbuf)?;
+                let id = create_image_from_pixbuf(canvas, &self.pixbuf, ImageFlags::empty())?;
                 self.cached_image_id.set(Some(id));
                 id
             }
