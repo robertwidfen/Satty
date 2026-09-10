@@ -199,14 +199,14 @@ impl From<Style> for Paint {
     fn from(value: Style) -> Self {
         Paint::default()
             .with_anti_alias(true)
-            .with_font_size(value.size.to_text_size(value.annotation_size_factor) as f32)
+            .with_font_size(value.to_text_size() as f32)
             .with_color(value.color.into())
             .with_line_cap(if value.round_caps {
                 LineCap::Round
             } else {
                 LineCap::Butt
             })
-            .with_line_width(value.size.to_line_width(value.annotation_size_factor))
+            .with_line_width(value.to_line_width())
     }
 }
 
@@ -233,70 +233,84 @@ impl FromVariant for Size {
     }
 }
 
-impl Size {
-    pub fn to_text_size(self, size_factor: f32) -> i32 {
-        match self {
+impl Style {
+    pub fn to_text_size(self) -> i32 {
+        let size_factor = self.annotation_size_factor;
+        match self.size {
             Size::Small => (36.0 * size_factor) as i32,
             Size::Medium => (54.0 * size_factor) as i32,
             Size::Large => (96.0 * size_factor) as i32,
         }
     }
 
-    pub fn to_line_width(self, size_factor: f32) -> f32 {
-        match self {
+    pub fn to_line_width(self) -> f32 {
+        let size_factor = self.annotation_size_factor;
+        match self.size {
             Size::Small => 3.0 * size_factor,
             Size::Medium => 5.0 * size_factor,
             Size::Large => 7.0 * size_factor,
         }
     }
 
-    pub fn to_arrow_tail_width(self, size_factor: f32) -> f32 {
-        match self {
+    pub fn to_arrow_tail_width(self) -> f32 {
+        let size_factor = self.annotation_size_factor;
+        match self.size {
             Size::Small => 3.0 * size_factor,
             Size::Medium => 10.0 * size_factor,
             Size::Large => 25.0 * size_factor,
         }
     }
 
-    pub fn to_arrow_head_length(self, size_factor: f32) -> f32 {
-        match self {
+    pub fn to_arrow_head_length(self) -> f32 {
+        let size_factor = self.annotation_size_factor;
+        match self.size {
             Size::Small => 15.0 * size_factor,
             Size::Medium => 30.0 * size_factor,
             Size::Large => 60.0 * size_factor,
         }
     }
 
-    pub fn to_blur_factor(self, size_factor: f32) -> f32 {
-        match self {
-            Size::Small => 4.0 * size_factor.min(10.0),
-            Size::Medium => 8.0 * size_factor.min(10.0),
-            Size::Large => 16.0 * size_factor.min(10.0),
+    pub fn to_blur_factor(self) -> f32 {
+        let size_factor = self.annotation_size_factor;
+        match self.size {
+            Size::Small => size_factor.max(1.0),
+            Size::Medium => 8.0 * size_factor,
+            Size::Large => 16.0 * size_factor,
         }
     }
 
-    pub fn to_highlight_width(self, size_factor: f32) -> f32 {
-        match self {
-            Size::Small => 15.0 * size_factor,
+    pub fn to_highlight_width(self) -> f32 {
+        let size_factor = self.annotation_size_factor;
+        match self.size {
+            Size::Small => size_factor.max(1.0),
             Size::Medium => 30.0 * size_factor,
             Size::Large => 45.0 * size_factor,
         }
     }
 
-    pub fn to_blocksize(self, size_factor: f32) -> usize {
-        match self {
-            Size::Small => 4 * (size_factor as usize).max(1),
-            Size::Medium => 8 * (size_factor as usize).max(1),
-            Size::Large => 16 * (size_factor as usize).max(1),
+    pub fn to_highlight_opacity(self) -> f32 {
+        let size_factor = self.annotation_size_factor;
+        match self.size {
+            Size::Small => size_factor / 100.0,
+            Size::Medium => 0.4,
+            Size::Large => 0.8,
         }
     }
-}
 
-impl Style {
     pub fn corner_radius(&self) -> f32 {
         if self.round_caps {
             APP_CONFIG.read().corner_roundness()
         } else {
             0.0
+        }
+    }
+
+    pub fn to_blocksize(self) -> usize {
+        let size_factor = self.annotation_size_factor;
+        match self.size {
+            Size::Small => (size_factor).max(2.0) as usize,
+            Size::Medium => (8.0 * size_factor).max(2.0) as usize,
+            Size::Large => (16.0 * size_factor).max(2.0) as usize,
         }
     }
 }

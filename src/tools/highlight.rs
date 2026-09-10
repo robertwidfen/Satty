@@ -13,7 +13,7 @@ use crate::{
     configuration::APP_CONFIG,
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
-    style::{Size, Style},
+    style::Style,
     tools::{DrawableClone, RenderingMode, hit_test_rectangle},
 };
 
@@ -23,22 +23,6 @@ use super::{
     Drawable, Tool, ToolUpdateResult, Tools,
     drag_box::{DragBox, draw_center_marker},
 };
-
-fn get_highlight_opacity(size: Size) -> f32 {
-    match size {
-        Size::Small => 0.2,
-        Size::Medium => 0.4,
-        Size::Large => 0.8,
-    }
-}
-
-fn get_spotlight_opacity(size: Size) -> f32 {
-    match size {
-        Size::Small => 0.4,
-        Size::Medium => 0.6,
-        Size::Large => 0.8,
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -101,13 +85,9 @@ impl Highlight for Highlighter<FreehandHighlight> {
             self.style.color.r,
             self.style.color.g,
             self.style.color.b,
-            (255.0 * get_highlight_opacity(self.style.size)) as u8,
+            (255.0 * self.style.to_highlight_opacity()) as u8,
         ));
-        paint.set_line_width(
-            self.style
-                .size
-                .to_highlight_width(self.style.annotation_size_factor),
-        );
+        paint.set_line_width(self.style.to_highlight_width());
         paint.set_line_join(femtovg::LineJoin::Round);
         paint.set_line_cap(femtovg::LineCap::Square);
 
@@ -128,7 +108,7 @@ impl Highlight for Highlighter<BlockHighlight> {
             self.style.color.r,
             self.style.color.g,
             self.style.color.b,
-            (255.0 * get_highlight_opacity(self.style.size)) as u8,
+            (255.0 * self.style.to_highlight_opacity()) as u8,
         ));
 
         canvas.fill_path(&shadow_path, &shadow_paint);
@@ -197,10 +177,7 @@ impl Drawable for HighlightKind {
                     max_x = max_x.max(abs.x);
                     max_y = max_y.max(abs.y);
                 }
-                let stroke_width = h
-                    .style
-                    .size
-                    .to_highlight_width(h.style.annotation_size_factor);
+                let stroke_width = h.style.to_highlight_width();
                 Some((
                     Vec2D::new(min_x, min_y) - stroke_width,
                     Vec2D::new(max_x, max_y) + stroke_width,
@@ -336,10 +313,7 @@ impl Drawable for HighlightKind {
         }
 
         let mut color = Color::black();
-        color.set_alphaf(
-            self.get_style()
-                .map_or(0.6, |s| get_spotlight_opacity(s.size)),
-        );
+        color.set_alphaf(self.get_style().map_or(0.6, |s| s.to_highlight_opacity()));
         let paint = Paint::color(color).with_fill_rule(femtovg::FillRule::EvenOdd);
 
         canvas.fill_path(&path, &paint);

@@ -135,9 +135,7 @@ impl Drawable for Blur {
             self.cached_image.borrow_mut().replace(Self::blur(
                 canvas,
                 source_size,
-                self.style
-                    .size
-                    .to_blur_factor(self.style.annotation_size_factor),
+                self.style.to_blur_factor(),
                 background_image_id,
             )?);
         }
@@ -192,9 +190,7 @@ impl Drawable for Blur {
                 Self::blur(
                     canvas,
                     canvas_size,
-                    self.style
-                        .size
-                        .to_blur_factor(self.style.annotation_size_factor),
+                    self.style.to_blur_factor(),
                     background_image_id,
                 )
                 .unwrap(),
