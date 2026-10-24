@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 - log output now has level and severity [#711]
 - satty now shows a message dialog for fatal errors [#711]
 - <kbd>Esc</kbd> no longer aborts tools. [#607], [#783]
+- Saving without `--output-filename` overwrites the input file, if the input is a file; before, saving to a file was disabled. [#TODO]
 
 ### Deprecated
 
