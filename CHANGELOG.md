@@ -41,9 +41,7 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Caps style for lines (several tools) is butt now, instead of round. This avoids drawing issues with lines shorter than linewidth and let's the anchors sit on the edges of the line. [#799]
 - The size input field is focused with <kbd>w</kbd> instead of <kbd>s</kbd>, which selects the spotlight now. [804]
 - Highlight, spotlight and lensblur draw a rectangle with fill (fill the bounding box) or an ellipse without. [804]
-- Switching tools also changes tool bar styles to those owned by the tool. [#814]
-- Size in the bottom toolbar is now not a factor, but px, pt, or percent. [#814]
-- `annotation-size-factor` scales sizes once at app start. [#814]
+- <kbd>Esc</kbd> or <kbd>Ctrl+Enter</kbd> exits text tool instead of aborting it. [#817]
 
 ### Deprecated
 
@@ -82,5 +80,6 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 [#810]: https://github.com/Satty-org/Satty/pull/810
 [#813]: https://github.com/Satty-org/Satty/pull/813
 [#814]: https://github.com/Satty-org/Satty/pull/814
+[#817]: https://github.com/Satty-org/Satty/pull/817
 
 <!-- --8<-- [end:changelog] -->
