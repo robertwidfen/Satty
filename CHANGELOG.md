@@ -25,6 +25,7 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Display shortcuts in the tool group menu. [#813]
 - Saving as jpg, the extension of the output filename selects the format, e.g. png or jpg; transparent areas become white in jpg. [#TODO]
 - Saving without `--output-filename` overwrites the input file, if the input is a file; before, saving to a file was disabled. [#TODO]
+- Saving without `--output-filename` and without an input file asks for a file with save as, which is then used for further saves. [#TODO]
 
 ### Changed
 

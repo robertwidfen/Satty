@@ -347,6 +347,8 @@ pub struct SketchBoard {
     pointer_layer_scroll_accumulator: f32,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
+    // file chosen with save as, used for saving if there is no output or input file
+    save_as_filename: RefCell<Option<String>>,
     // last pointer position in canvas coordinates, used to paste at the cursor
     last_pointer_pos: Option<Vec2D>,
 }
@@ -488,6 +490,14 @@ impl SketchBoard {
                         }
                     }
                 }
+                // without a file to save to, ask for one; it is used for later saves
+                Action::SaveToFile if self.output_filename().is_none() => {
+                    if let Some(pix_buf) = pix_buf {
+                        let early_exit = APP_CONFIG.read().early_exit_save();
+                        self.handle_save_as(early_exit, pix_buf, sender, iter.collect());
+                    }
+                    return;
+                }
                 Action::SaveToFile => {
                     if let Some(ref pix_buf) = pix_buf {
                         self.handle_save(pix_buf);
@@ -498,10 +508,8 @@ impl SketchBoard {
                 from the callback rather than further iterating actions here */
                 Action::SaveToFileAs => {
                     if let Some(pix_buf) = pix_buf {
-                        let followup_actions: Vec<Action> = iter.collect();
-                        let is_modal =
-                            APP_CONFIG.read().early_exit_save_as() || !followup_actions.is_empty();
-                        self.handle_save_as(is_modal, pix_buf, sender, followup_actions);
+                        let early_exit = APP_CONFIG.read().early_exit_save_as();
+                        self.handle_save_as(early_exit, pix_buf, sender, iter.collect());
                     }
                     return;
                 }
@@ -574,20 +582,21 @@ impl SketchBoard {
         Some(output_filename)
     }
 
-    fn configured_output_path() -> Option<PathBuf> {
-        Self::output_filename()
+    fn configured_output_path(&self) -> Option<PathBuf> {
+        self.output_filename()
             .filter(|output_filename| output_filename != "-")
             .map(PathBuf::from)
     }
 
     /// Returns the configured output filename, or the input file if there is none,
-    /// so that saving overwrites the opened image.
-    fn output_filename() -> Option<String> {
+    /// so that saving overwrites the opened image, or else the file last chosen
+    /// with save as.
+    fn output_filename(&self) -> Option<String> {
         let config = APP_CONFIG.read();
         match (config.output_filename(), config.input()) {
             (Some(output_filename), _) => Self::resolve_output_filename(output_filename),
             (None, Some(Input::File(input_filename))) => Some(input_filename.clone()),
-            (None, _) => None,
+            (None, _) => self.save_as_filename.borrow().clone(),
         }
     }
 
@@ -704,7 +713,7 @@ impl SketchBoard {
     }
 
     fn handle_save(&self, image: &Pixbuf) {
-        let Some(output_filename) = Self::output_filename() else {
+        let Some(output_filename) = self.output_filename() else {
             log_with_severity(
                 "No Output filename specified!",
                 LogLevel::Error,
@@ -758,14 +767,16 @@ impl SketchBoard {
         };
     }
 
+    /// Asks for a file and saves `pixbuf` to it, exits afterwards if `early_exit`
     fn handle_save_as(
         &self,
-        is_modal: bool,
+        early_exit: bool,
         pixbuf: Pixbuf,
         sender: ComponentSender<Self>,
         followup_actions: Vec<Action>,
     ) {
-        let configured_output_path = Self::configured_output_path();
+        let is_modal = early_exit || !followup_actions.is_empty();
+        let configured_output_path = self.configured_output_path();
         let initial_dir = Self::save_as_initial_dir(
             Self::save_as_last_dir_file().as_deref(),
             configured_output_path.as_deref(),
@@ -830,7 +841,7 @@ impl SketchBoard {
                             LogSeverity::High,
                         ),
                         Ok(_) => {
-                            exit_app = APP_CONFIG.read().early_exit_save_as();
+                            exit_app = early_exit;
                             filename = Some(output_filename.clone());
                             Self::remember_save_as_dir(Path::new(&output_filename));
                             log_result_with_pixbuf(
@@ -2012,6 +2023,7 @@ impl Component for SketchBoard {
             }
             SketchBoardInput::RenderResultFollowup(pix_buf, action, filename) => {
                 if filename.is_some() {
+                    self.save_as_filename.replace(filename.clone());
                     *self.last_saved_filepath.borrow_mut() = filename;
                 }
                 self.handle_render_result_with_pixbuf(pix_buf, action, sender);
@@ -2184,6 +2196,7 @@ impl Component for SketchBoard {
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),
+            save_as_filename: RefCell::new(None),
             last_pointer_pos: None,
         };
 
