@@ -71,6 +71,7 @@ Please check these when upgrading, especially if you use your own `config.toml` 
 - New config `notification-grace-period` to wait for the notification daemon to read the thumbnail before exiting. [#635]
 - New `--log-level` option, log output has level and severity, and a dialog is shown for fatal errors. [#711]
 - Documentation website at <https://satty-org.github.io/Satty/>. [#668], [#763], [#830]
+- Saving as jpg, the extension of the output filename selects the format, e.g. png or jpg; transparent areas become white in jpg. [#TODO]
 
 ### Changed
 
@@ -190,5 +191,6 @@ Thanks to everyone who contributed to this release:
 [#826]: https://github.com/Satty-org/Satty/pull/826
 [#827]: https://github.com/Satty-org/Satty/pull/827
 [#830]: https://github.com/Satty-org/Satty/pull/830
+[#TODO]: https://github.com/Satty-org/Satty/pull/TODO
 
 <!-- --8<-- [end:changelog] -->

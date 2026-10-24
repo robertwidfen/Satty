@@ -56,8 +56,9 @@ pub struct CommandLine {
     #[arg(long)]
     pub floating_hack: bool,
 
-    /// Filename to use for saving action or `-` to print to stdout. Omit to disable saving to file. Might contain format
-    /// specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>.
+    /// Filename to use for saving action or `-` to print to stdout. Omit to disable saving to file. The extension
+    /// selects the format, e.g. png or jpg (NEXTRELEASE).
+    /// Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>.
     /// Since 0.20.0, can contain tilde (~) for home dir
     #[arg(short, long)]
     pub output_filename: Option<String>,
