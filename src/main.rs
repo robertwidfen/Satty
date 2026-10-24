@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::{Command, Stdio, exit};
 use std::sync::{LazyLock, RwLock};
 use std::time::SystemTime;
-use std::{fs, panic, thread};
+use std::{fs, thread};
 use std::{io, time::Duration};
 
 use relm4::{
@@ -87,6 +87,7 @@ struct App {
     outer_box: gtk::Box,
     overlay: gtk::Overlay,
     toast_overlay: adw::ToastOverlay,
+    config_file_errors: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -122,6 +123,24 @@ impl App {
                 .and_then(|display| display.monitor_at_surface(&surface))
                 .map(|monitor| monitor.geometry())
         })
+    }
+
+    /// Shows the errors of config files that could not be read, once.
+    fn show_config_file_errors(&mut self, root: &Window) {
+        if self.config_file_errors.is_empty() {
+            return;
+        }
+        let msg = format!(
+            "{}\n\nThese files are ignored.",
+            std::mem::take(&mut self.config_file_errors).join("\n\n")
+        );
+        let dialog = ui::common_dialogs::build_error_dialog(
+            "Error reading configuration",
+            &msg,
+            Some(root.clone()),
+        );
+        dialog.connect_response(|d, _| d.destroy());
+        dialog.show();
     }
 
     fn resize_window_initial(&self, root: &Window, sender: ComponentSender<Self>) {
@@ -291,7 +310,10 @@ impl Component for App {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
-            AppInput::Realized => self.resize_window_initial(root, sender),
+            AppInput::Realized => {
+                self.resize_window_initial(root, sender);
+                self.show_config_file_errors(root);
+            }
             AppInput::SetToolbarsDisplay(visible) => {
                 self.tools_toolbar
                     .sender()
@@ -469,6 +491,7 @@ impl Component for App {
             outer_box,
             overlay,
             toast_overlay,
+            config_file_errors: APP_CONFIG.read().config_file_errors().to_vec(),
         };
 
         // Initialize style toolbar with full image dimensions
@@ -599,13 +622,7 @@ fn read_css_overrides() -> Option<String> {
 
 fn run_satty() -> Result<()> {
     // load OpenGL
-    if panic::catch_unwind(|| {
-        epoxy::load_epoxy();
-    })
-    .is_err()
-    {
-        return Err(anyhow::anyhow!("failed to load epoxy"));
-    }
+    epoxy::load_epoxy().map_err(|e| anyhow::anyhow!("failed to load epoxy: {e}"))?;
 
     generate_profile_output!("loaded gl");
 

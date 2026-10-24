@@ -2,16 +2,16 @@ use crate::logging::{LogSeverity, log_with_severity};
 use libloading::Library;
 use satty_cli::command_line::LogLevel;
 use std::ffi::c_void;
+use std::ptr;
 use std::sync::OnceLock;
-use std::{panic, ptr};
 
-static EPOXY: OnceLock<Library> = OnceLock::new();
+static EPOXY: OnceLock<Result<Library, String>> = OnceLock::new();
 
-pub fn load_epoxy() -> &'static Library {
+pub fn load_epoxy() -> Result<&'static Library, &'static str> {
     // TODO: rework with get_or_try_init once
     // https://github.com/rust-lang/rust/issues/109737
     // becomes stable
-    EPOXY.get_or_init(|| {
+    let library = EPOXY.get_or_init(|| {
         #[cfg(target_os = "macos")]
         let filename = "libepoxy.0.dylib";
         #[cfg(all(unix, not(target_os = "macos")))]
@@ -24,16 +24,20 @@ pub fn load_epoxy() -> &'static Library {
         #[cfg(windows)]
         let library = library.or_else(|_| unsafe { Library::new("epoxy-0.dll") });
 
-        // if this fails, we can't start anyway so ok for now.
-        library.unwrap()
-    })
+        library.map_err(|e| e.to_string())
+    });
+    library.as_ref().map_err(String::as_str)
 }
 
 pub fn get_proc_addr(name: &str) -> *const c_void {
-    let library = match panic::catch_unwind(load_epoxy) {
+    let library = match load_epoxy() {
         Ok(library) => library,
-        Err(_) => {
-            log_with_severity("failed to load epoxy", LogLevel::Error, LogSeverity::Urgent);
+        Err(e) => {
+            log_with_severity(
+                &format!("failed to load epoxy: {e}"),
+                LogLevel::Error,
+                LogSeverity::Urgent,
+            );
             return ptr::null();
         }
     };

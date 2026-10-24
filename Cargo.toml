@@ -1,6 +1,5 @@
 [package]
 name = "satty"
-default-run = "satty"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -20,18 +19,7 @@ include = [
 ]
 
 [features]
-default = ["fatal-error-dialog"]
 ci-release = []
-fatal-error-dialog = []
-
-[[bin]]
-name = "satty"
-path = "src/main.rs"
-
-[[bin]]
-name = "satty-fatal-error-dialog"
-path = "src/bin/satty-fatal-error-dialog.rs"
-required-features = ["fatal-error-dialog"]
 
 [dependencies]
 satty_cli.workspace = true

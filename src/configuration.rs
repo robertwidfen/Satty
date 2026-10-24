@@ -8,14 +8,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use std::{
     collections::HashMap,
-    fs,
-    io::{self, Write},
-    path::Path,
+    fs, io,
+    path::{Path, PathBuf},
 };
 use thiserror::Error;
 use xdg::{BaseDirectories, BaseDirectoriesError};
 
-use crate::logging::{LogSeverity, log, log_with_severity};
+use crate::logging::log;
 use crate::tools::Highlighters;
 use satty_cli::command_line::{
     Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, LogLevel,
@@ -55,6 +54,7 @@ pub enum Input {
 }
 
 pub struct Configuration {
+    config_file_errors: Vec<String>,
     man: bool,
     license: bool,
     input: Option<Input>,
@@ -268,26 +268,19 @@ impl Configuration {
             Err(e) => e.exit(),
         };
 
-        // read configuration file and exit on error
-        let files = match ConfigurationFile::try_read(&command_line.config) {
-            Ok(c) => c,
-            Err(e) => {
-                log_with_severity(
-                    &format!("Error reading config file: {e}"),
-                    LogLevel::Fatal,
-                    LogSeverity::Urgent,
-                );
+        // read configuration files, files that can't be read are skipped and
+        // reported in a dialog once the window is shown
+        let (files, errors) = ConfigurationFile::try_read(&command_line.config);
+        for error in &errors {
+            log(
+                &format!("Error reading config file {error}"),
+                LogLevel::Error,
+            );
+        }
 
-                // swallow broken pipes
-                let _ = std::io::stdout().lock().flush();
-                let _ = std::io::stderr().lock().flush();
-
-                // exit
-                std::process::exit(3);
-            }
-        };
-
-        APP_CONFIG.write().merge(files, command_line);
+        let mut config = APP_CONFIG.write();
+        config.merge(files, command_line);
+        config.config_file_errors = errors;
     }
 
     fn merge_general(&mut self, general: ConfigurationFileGeneral) {
@@ -559,6 +552,11 @@ impl Configuration {
         // ---
     }
 
+    /// Errors of the config files that could not be read
+    pub fn config_file_errors(&self) -> &[String] {
+        &self.config_file_errors
+    }
+
     pub fn man(&self) -> bool {
         self.man
     }
@@ -727,6 +725,7 @@ impl Configuration {
 impl Default for Configuration {
     fn default() -> Self {
         Self {
+            config_file_errors: vec![],
             man: false,
             license: false,
             input: None,
@@ -875,28 +874,28 @@ struct ColorPaletteFile {
 }
 
 impl ConfigurationFile {
-    fn try_read(
-        specified_path: &Option<String>,
-    ) -> Result<Vec<ConfigurationFile>, ConfigurationFileError> {
-        if let Some(p) = specified_path {
-            return match Self::try_read_path(p)? {
-                Some(f) => Ok(vec![f]),
-                // _ can't happen with current implementation of try_read_path, any errors (including file not found) are propagated
-                _ => Ok(vec![]),
-            };
-        }
+    /// Reads the `specified_path` or the config files in the XDG config dirs.
+    /// Returns the files that could be read and an error message for each file
+    /// that could not, those files are skipped.
+    fn try_read(specified_path: &Option<String>) -> (Vec<ConfigurationFile>, Vec<String>) {
+        let paths: Vec<PathBuf> = match specified_path {
+            Some(p) => vec![PathBuf::from(p)],
+            // only present config files are used
+            None => BaseDirectories::with_prefix(env!("CARGO_PKG_NAME"))
+                .find_config_files("config.toml")
+                .collect(),
+        };
 
         let mut files = Vec::new();
-
-        let dirs = BaseDirectories::with_prefix(env!("CARGO_PKG_NAME"));
-        // only present config files are used
-        for c in dirs.find_config_files("config.toml") {
-            if let Some(f) = Self::try_read_path(c)? {
-                files.push(f);
+        let mut errors = Vec::new();
+        for path in paths {
+            match Self::try_read_path(&path) {
+                Ok(Some(f)) => files.push(f),
+                Ok(None) => {}
+                Err(e) => errors.push(format!("{}: {e}", path.display())),
             }
         }
-
-        Ok(files)
+        (files, errors)
     }
 
     fn warning_unknown_field(prefix: &str, unknown_fields: &HashMap<String, toml::Value>) {

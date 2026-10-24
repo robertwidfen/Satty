@@ -1,5 +1,3 @@
-#[cfg(feature = "fatal-error-dialog")]
-use std::process::Command;
 use std::sync::OnceLock;
 
 use crate::configuration::APP_CONFIG;
@@ -8,8 +6,8 @@ use crate::{APP_BROKER, AppInput, ui};
 use chrono::Local;
 use relm4::gtk;
 use relm4::gtk::gdk_pixbuf::Pixbuf;
-use relm4::gtk::gio;
 use relm4::gtk::prelude::{DialogExt, GtkApplicationExt, GtkWindowExt, WidgetExt};
+use relm4::gtk::{gio, glib};
 pub use satty_cli::command_line::LogLevel;
 
 pub static CONFIG_READ: OnceLock<()> = OnceLock::new();
@@ -59,14 +57,30 @@ pub fn log(msg: &str, level: LogLevel) {
     }
 }
 
-#[cfg(feature = "fatal-error-dialog")]
-fn spawn_fatal_dialog(msg: &str) {
-    let helper = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("satty-fatal-error-dialog")));
-    if let Some(helper) = helper {
-        let _ = Command::new(helper).arg(msg).status();
+/// Shows `msg` in an error dialog and blocks until it is closed, for errors before
+/// the app runs. Only works on the main thread, as GTK can only be used there.
+fn show_dialog_before_app(msg: &str) {
+    if std::thread::current().name() != Some("main") || gtk::init().is_err() {
+        return;
     }
+
+    let main_loop = glib::MainLoop::new(None, false);
+    let message_dialog = ui::common_dialogs::build_fatal_error_dialog(msg, None);
+
+    let ml = main_loop.clone();
+    message_dialog.connect_response(move |d, _| {
+        d.close();
+        ml.quit();
+    });
+
+    let ml = main_loop.clone();
+    message_dialog.connect_close_request(move |_| {
+        ml.quit();
+        glib::Propagation::Proceed
+    });
+
+    message_dialog.show();
+    main_loop.run();
 }
 
 pub fn log_with_severity(msg: &str, level: LogLevel, severity: LogSeverity) {
@@ -80,8 +94,7 @@ pub fn log_with_severity(msg: &str, level: LogLevel, severity: LogSeverity) {
     let has_gtk = gtk::is_initialized();
 
     if !can_read_config || !has_gtk {
-        #[cfg(feature = "fatal-error-dialog")]
-        spawn_fatal_dialog(msg);
+        show_dialog_before_app(msg);
     } else if level == LogLevel::Fatal {
         // if it's fatal, we shouldn't rely on toast or notification
         let app = relm4::main_application();
