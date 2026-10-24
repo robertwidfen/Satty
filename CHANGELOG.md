@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
   layout if no match in current keyboard layout. Match unshifed keys also,
   i.e. new <kbb>Ctrl+equal</kbb> shortcut works on all layouts. [#771], [#772]
 - Editing of annotations. [#607]
+- Saving as jpg, the extension of the output filename selects the format, e.g. png or jpg; transparent areas become white in jpg. [#TODO]
 
 ### Changed
 
@@ -44,5 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 [#772]: https://github.com/Satty-org/Satty/pull/772
 [#783]: https://github.com/Satty-org/Satty/pull/783
 [#795]: https://github.com/Satty-org/Satty/pull/795
+[#TODO]: https://github.com/Satty-org/Satty/pull/TODO
 
 <!-- --8<-- [end:changelog] -->
