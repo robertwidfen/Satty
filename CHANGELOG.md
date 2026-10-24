@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 - satty now shows a message dialog for fatal errors [#711]
 - <kbd>Esc</kbd> no longer aborts tools. [#607], [#783]
 - Saving without `--output-filename` overwrites the input file, if the input is a file; before, saving to a file was disabled. [#TODO]
+- Saving without `--output-filename` and without an input file asks for a file with save as, which is then used for further saves. [#TODO]
 
 ### Deprecated
 
