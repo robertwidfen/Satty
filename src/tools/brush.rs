@@ -1,7 +1,8 @@
 use std::time::Instant;
 
 use super::SelectionType;
-use femtovg::{FontId, LineCap, LineJoin, Paint, Path};
+use femtovg::{Color, FontId, LineCap, LineJoin, Paint, Path};
+use serde::Deserialize;
 
 use crate::{
     configuration::APP_CONFIG,
@@ -14,16 +15,36 @@ use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 use relm4::Sender;
 use relm4::gtk::gdk::{Key, ModifierType};
 
+#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BrushMode {
+    #[default]
+    Pen,
+    Highlighter,
+    Brush,
+}
+
 #[derive(Default)]
 pub struct BrushTool {
+    mode: BrushMode,
     drawable: Option<BrushDrawable>,
     style: Style,
     input_enabled: bool,
     sender: Option<Sender<SketchBoardInput>>,
 }
 
+impl BrushTool {
+    pub fn with_mode(mode: BrushMode) -> Self {
+        Self {
+            mode,
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BrushDrawable {
+    mode: BrushMode,
     // The start point of the brush stroke this is relative to canvas
     // after this the points are relative to the start point
     start_point: Vec2D,
@@ -49,22 +70,39 @@ impl BrushDrawable {
         self.points
             .push(anchor + (point - anchor).snapped_vector_15deg());
     }
+
+    // a single segment is handled like a line: its bounds are start and end
+    fn is_line(&self) -> bool {
+        self.points.len() == 1
+    }
 }
 
 impl Drawable for BrushDrawable {
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        if self.is_line() {
+            return Some((self.start_point, self.start_point + self.points[0]));
+        }
         Some(super::calculate_line_bounds(self.start_point, &self.points))
     }
 
     fn get_selection_type(&self) -> SelectionType {
-        SelectionType::BoundingBoxAllHandles
+        if self.is_line() {
+            SelectionType::Line
+        } else {
+            SelectionType::BoundingBoxAllHandles
+        }
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let line_width = self
-            .style
-            .size
-            .to_line_width(self.style.annotation_size_factor);
+        let line_width = if self.mode == BrushMode::Highlighter {
+            self.style
+                .size
+                .to_highlight_width(self.style.annotation_size_factor)
+        } else {
+            self.style
+                .size
+                .to_line_width(self.style.annotation_size_factor)
+        };
         let tolerance = tolerance + line_width / 2.0;
         super::hit_test_line(pos, self.start_point, &self.points, tolerance)
     }
@@ -74,6 +112,12 @@ impl Drawable for BrushDrawable {
     }
 
     fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
+        if self.is_line() {
+            // points are relative to the start point
+            self.start_point = tl;
+            self.points[0] = br - tl;
+            return;
+        }
         super::resize_line_bounds(tl, br, &mut self.start_point, &mut self.points);
     }
 
@@ -102,12 +146,50 @@ impl Drawable for BrushDrawable {
             path.line_to(start_point.x + p.x, start_point.y + p.y);
         }
 
-        canvas.stroke_path(
-            &path,
-            &Paint::from(self.style)
-                .with_line_cap(LineCap::Round)
-                .with_line_join(LineJoin::Round),
-        );
+        let mut paint = Paint::from(self.style)
+            .with_line_join(LineJoin::Round)
+            .with_line_cap(if self.style.round_caps {
+                LineCap::Round
+            } else {
+                LineCap::Square
+            });
+
+        if self.mode == BrushMode::Highlighter {
+            paint.set_color(Color::rgba(
+                self.style.color.r,
+                self.style.color.g,
+                self.style.color.b,
+                (255.0 * 0.4) as u8,
+            ));
+            paint.set_line_width(
+                self.style
+                    .size
+                    .to_highlight_width(self.style.annotation_size_factor),
+            );
+        }
+
+        canvas.save();
+        if self.mode == BrushMode::Brush {
+            // soft edge: blurred shadow in the stroke color under the stroke;
+            // femtovg's blur is exact only up to 16, larger values get clamped
+            let blur = self
+                .style
+                .size
+                .to_line_width(self.style.annotation_size_factor)
+                .min(16.0);
+            canvas.set_shadow_color(self.style.color.into());
+            canvas.set_shadow_blur(blur);
+            canvas.set_shadow_offset(0.0, 0.0);
+            paint.set_color(Color::rgba(
+                self.style.color.r,
+                self.style.color.g,
+                self.style.color.b,
+                (255.0 * 0.8) as u8,
+            ));
+        }
+        canvas.stroke_path(&path, &paint);
+        canvas.restore();
+
         Ok(())
     }
 }
@@ -122,7 +204,11 @@ impl Tool for BrushTool {
     }
 
     fn get_tool_type(&self) -> super::Tools {
-        Tools::Brush
+        match self.mode {
+            BrushMode::Pen => Tools::Pen,
+            BrushMode::Highlighter => Tools::Highlighter,
+            BrushMode::Brush => Tools::Brush,
+        }
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
@@ -162,6 +248,7 @@ impl Tool for BrushTool {
                     return ToolUpdateResult::Unmodified;
                 }
                 self.drawable = Some(BrushDrawable {
+                    mode: self.mode,
                     start_point: event.pos,
                     smoother: Smoother::new(APP_CONFIG.read().brush_smooth_history_size()),
                     points: vec![],

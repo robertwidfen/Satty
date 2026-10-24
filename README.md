@@ -147,9 +147,10 @@ The bindings are:
 
 Default single-key shortcuts:
 
-- <kbd>p</kbd>: Pointer tool
+- <kbd>v</kbd>: Pointer tool <sup>NEXTRELEASE</sup>
 - <kbd>c</kbd>: Crop tool
-- <kbd>b</kbd>: Brush tool
+- <kbd>b</kbd>: Brush tool (soft edges)
+- <kbd>p</kbd>: Pen tool <sup>NEXTRELEASE</sup>
 - <kbd>i</kbd>: Line tool
 - <kbd>z</kbd>: Arrow tool
 - <kbd>r</kbd>: Rectangle tool
@@ -254,7 +255,7 @@ Marker:
 
 - Hold <kbd>Alt</kbd> to get extra ring. <sup>0.22.0</sup>
 
-Brush:
+Pen and Brush:
 
 - Hold <kbd>Shift</kbd> for a straight 15° aligned line. Release <kbd>Shift</kbd> to continue freehand, or hold it again to start another straight segment. <sup>NEXTRELEASE</sup>
 

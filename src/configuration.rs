@@ -17,10 +17,9 @@ use xdg::{BaseDirectories, BaseDirectoriesError};
 
 use crate::{style::Color, tools::Tools};
 
-use crate::tools::Highlighters;
 use satty_cli::command_line::{
-    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, NotificationThumbnail,
-    Resize,
+    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, Highlighters,
+    NotificationThumbnail, Resize,
 };
 
 pub static APP_CONFIG: SharedState<Configuration> = SharedState::new();
