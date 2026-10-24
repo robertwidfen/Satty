@@ -23,6 +23,7 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Blackout tool <kbd>Shift+X</kbd>, it blacks out the marked area. [806]
 - Marker tool uses style. [808]
 - Display shortcuts in the tool group menu. [#813]
+- Saving as jpg, the extension of the output filename selects the format, e.g. png or jpg; transparent areas become white in jpg. [#TODO]
 
 ### Changed
 
@@ -73,5 +74,6 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 [#808]: https://github.com/Satty-org/Satty/pull/808
 [#810]: https://github.com/Satty-org/Satty/pull/810
 [#813]: https://github.com/Satty-org/Satty/pull/813
+[#TODO]: https://github.com/Satty-org/Satty/pull/TODO
 
 <!-- --8<-- [end:changelog] -->

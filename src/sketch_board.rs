@@ -587,6 +587,64 @@ impl SketchBoard {
             })
     }
 
+    /// Encodes `image` in the format of the extension of `path`, png if there is
+    /// none. Supported are the formats gdk-pixbuf can write, e.g. png and jpg.
+    fn encode_image(image: &Pixbuf, path: Option<&Path>) -> Result<Vec<u8>, String> {
+        let extension = path
+            .and_then(Path::extension)
+            .map(|extension| extension.to_string_lossy().to_lowercase());
+        let format = match extension {
+            None => "png".to_owned(),
+            Some(extension) => Pixbuf::formats()
+                .iter()
+                .filter(|format| format.is_writable())
+                .find(|format| format.extensions().iter().any(|e| *e == extension))
+                .and_then(|format| format.name())
+                .map(String::from)
+                .ok_or_else(|| format!("saving as .{extension} is not supported"))?,
+        };
+        if format != "jpeg" {
+            return image
+                .save_to_bufferv(&format, &[])
+                .map_err(|e| e.to_string());
+        }
+        // jpeg has no alpha channel and gdk-pixbuf writes a gray image for one;
+        // its default quality of 75 is rather low
+        Self::without_alpha(image)
+            .save_to_bufferv(&format, &[("quality", "90")])
+            .map_err(|e| e.to_string())
+    }
+
+    /// Returns `image` without alpha channel, put on a white background.
+    fn without_alpha(image: &Pixbuf) -> Pixbuf {
+        if !image.has_alpha() {
+            return image.clone();
+        }
+        let (width, height) = (image.width(), image.height());
+        let rowstride = image.rowstride() as usize;
+        let channels = image.n_channels() as usize;
+        let pixels = image.read_pixel_bytes();
+        let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
+        for y in 0..height as usize {
+            for x in 0..width as usize {
+                let i = y * rowstride + x * channels;
+                let alpha = u32::from(pixels[i + 3]);
+                for c in &pixels[i..i + 3] {
+                    rgb.push(((u32::from(*c) * alpha + 255 * (255 - alpha)) / 255) as u8);
+                }
+            }
+        }
+        Pixbuf::from_bytes(
+            &Bytes::from_owned(rgb),
+            relm4::gtk::gdk_pixbuf::Colorspace::Rgb,
+            false,
+            8,
+            width,
+            height,
+            width * 3,
+        )
+    }
+
     fn save_as_last_dir_file() -> Option<PathBuf> {
         let dirs = BaseDirectories::with_prefix(env!("CARGO_PKG_NAME"));
         dirs.get_state_file(SAVE_AS_LAST_DIR_FILE)
@@ -658,17 +716,9 @@ impl SketchBoard {
             return;
         };
 
-        // TODO: we could support more data types
-        if output_filename != "-" && !output_filename.ends_with(".png") {
-            log_with_severity(
-                "The only supported format is png, but the filename does not end in png",
-                LogLevel::Error,
-                LogSeverity::High,
-            );
-            return;
-        }
-
-        let data = match image.save_to_bufferv("png", &Vec::new()) {
+        // "-" means stdout, which gets png
+        let path = (output_filename != "-").then(|| Path::new(&output_filename));
+        let data = match Self::encode_image(image, path) {
             Ok(d) => d,
             Err(e) => {
                 log_with_severity(
@@ -676,6 +726,7 @@ impl SketchBoard {
                     LogLevel::Error,
                     LogSeverity::High,
                 );
+
                 return;
             }
         };
@@ -727,27 +778,16 @@ impl SketchBoard {
             .and_then(Path::file_name)
             .map(|name| name.to_string_lossy().into_owned());
 
-        let data = match pixbuf.save_to_bufferv("png", &Vec::new()) {
-            Ok(d) => d,
-            Err(e) => {
-                log_with_severity(
-                    &format!("Error serializing image: {e}"),
-                    LogLevel::Error,
-                    LogSeverity::High,
-                );
-                return;
-            }
-        };
-
         let root = self.renderer.toplevel_window();
 
         relm4::spawn_local(async move {
-            let builder = gtk::FileChooserNative::builder()
-                .modal(is_modal)
-                .title("Save Image As")
-                .action(gtk::FileChooserAction::Save)
-                .accept_label("Save")
-                .cancel_label("Cancel");
+            let builder: gtk::builders::FileChooserNativeBuilder =
+                gtk::FileChooserNative::builder()
+                    .modal(is_modal)
+                    .title("Save Image As")
+                    .action(gtk::FileChooserAction::Save)
+                    .accept_label("Save")
+                    .cancel_label("Cancel");
 
             let dialog = match root {
                 Some(w) => builder.transient_for(&w),
@@ -781,7 +821,12 @@ impl SketchBoard {
                         None => return,
                     };
 
-                    match Self::write_image_file(Path::new(&output_filename), &data) {
+                    let written = Self::encode_image(&pixbuf, Some(Path::new(&output_filename)))
+                        .and_then(|data| {
+                            Self::write_image_file(Path::new(&output_filename), &data)
+                                .map_err(|e| e.to_string())
+                        });
+                    match written {
                         Err(e) => log_with_severity(
                             &format!("Error while saving file '{output_filename}': {e}"),
                             LogLevel::Error,
@@ -2256,6 +2301,100 @@ impl KeyEventMsg {
 #[cfg(test)]
 mod tests {
     use super::SketchBoard;
+    use relm4::gtk::gdk_pixbuf::{Colorspace, Pixbuf};
+
+    fn encode(extension: Option<&str>) -> Result<Vec<u8>, String> {
+        let image = Pixbuf::new(Colorspace::Rgb, true, 8, 4, 4).unwrap();
+        image.fill(0x3366_99cc);
+        let path = extension.map(|e| PathBuf::from(format!("image.{e}")));
+        SketchBoard::encode_image(&image, path.as_deref())
+    }
+
+    #[test]
+    fn encodes_by_extension() {
+        const PNG: &[u8] = b"\x89PNG";
+        const JPEG: &[u8] = b"\xff\xd8\xff";
+        assert!(encode(None).unwrap().starts_with(PNG));
+        assert!(encode(Some("png")).unwrap().starts_with(PNG));
+        // jpeg has no alpha channel, the image has one
+        assert!(encode(Some("jpg")).unwrap().starts_with(JPEG));
+        assert!(encode(Some("jpeg")).unwrap().starts_with(JPEG));
+        assert!(encode(Some("JPG")).unwrap().starts_with(JPEG));
+    }
+
+    /// Encodes a red | blue RGBA image like a rendered one and decodes it again
+    fn round_trip(extension: &str) -> Pixbuf {
+        let (w, h) = (16, 8);
+        let mut bytes = Vec::new();
+        for _ in 0..h {
+            for x in 0..w {
+                bytes.extend(if x < w / 2 {
+                    [255, 0, 0, 255]
+                } else {
+                    [0, 0, 255, 255]
+                });
+            }
+        }
+        let image = Pixbuf::from_bytes(
+            &relm4::gtk::glib::Bytes::from(&bytes),
+            Colorspace::Rgb,
+            true,
+            8,
+            w,
+            h,
+            w * 4,
+        );
+        let path = PathBuf::from(format!("image.{extension}"));
+        let data = SketchBoard::encode_image(&image, Some(&path)).unwrap();
+        let stream =
+            relm4::gtk::gio::MemoryInputStream::from_bytes(&relm4::gtk::glib::Bytes::from(&data));
+        Pixbuf::from_stream(&stream, relm4::gtk::gio::Cancellable::NONE).unwrap()
+    }
+
+    fn pixel(image: &Pixbuf, x: usize, y: usize) -> [u8; 3] {
+        let bytes = image.read_pixel_bytes();
+        let i = y * image.rowstride() as usize + x * image.n_channels() as usize;
+        [bytes[i], bytes[i + 1], bytes[i + 2]]
+    }
+
+    #[test]
+    fn keeps_colors_by_extension() {
+        for extension in ["png", "jpg"] {
+            let image = round_trip(extension);
+            let (red, blue) = (pixel(&image, 2, 4), pixel(&image, 13, 4));
+            assert!(
+                red[0] > 200 && red[1] < 50 && red[2] < 50,
+                "{extension}: {red:?}"
+            );
+            assert!(
+                blue[0] < 50 && blue[1] < 50 && blue[2] > 200,
+                "{extension}: {blue:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn transparency_becomes_white_in_jpeg() {
+        let image = Pixbuf::new(Colorspace::Rgb, true, 8, 4, 4).unwrap();
+        image.fill(0x0000_0000);
+        assert_eq!(
+            SketchBoard::without_alpha(&image).read_pixel_bytes()[..3],
+            [255, 255, 255]
+        );
+        image.fill(0x0000_ff80);
+        assert_eq!(
+            SketchBoard::without_alpha(&image).read_pixel_bytes()[..3],
+            [127, 127, 255]
+        );
+    }
+
+    #[test]
+    fn unknown_extension_is_an_error() {
+        assert_eq!(
+            encode(Some("xyz")),
+            Err("saving as .xyz is not supported".to_owned())
+        );
+    }
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
