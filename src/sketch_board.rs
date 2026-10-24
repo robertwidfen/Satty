@@ -17,7 +17,7 @@ use gtk::prelude::*;
 use relm4::gtk::gdk::{self, DisplayManager, Key, ModifierType, Texture};
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
-use crate::configuration::{APP_CONFIG, Action};
+use crate::configuration::{APP_CONFIG, Action, Input};
 use crate::femtovg_area::FemtoVGArea;
 use crate::image_loading;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
@@ -575,16 +575,20 @@ impl SketchBoard {
     }
 
     fn configured_output_path() -> Option<PathBuf> {
-        APP_CONFIG
-            .read()
-            .output_filename()
-            .and_then(|output_filename| {
-                if output_filename == "-" {
-                    None
-                } else {
-                    Self::resolve_output_filename(output_filename).map(PathBuf::from)
-                }
-            })
+        Self::output_filename()
+            .filter(|output_filename| output_filename != "-")
+            .map(PathBuf::from)
+    }
+
+    /// Returns the configured output filename, or the input file if there is none,
+    /// so that saving overwrites the opened image.
+    fn output_filename() -> Option<String> {
+        let config = APP_CONFIG.read();
+        match (config.output_filename(), config.input()) {
+            (Some(output_filename), _) => Self::resolve_output_filename(output_filename),
+            (None, Some(Input::File(input_filename))) => Some(input_filename.clone()),
+            (None, _) => None,
+        }
     }
 
     /// Encodes `image` in the format of the extension of `path`, png if there is
@@ -700,19 +704,12 @@ impl SketchBoard {
     }
 
     fn handle_save(&self, image: &Pixbuf) {
-        let output_filename = match APP_CONFIG.read().output_filename() {
-            None => {
-                log_with_severity(
-                    "No Output filename specified!",
-                    LogLevel::Error,
-                    LogSeverity::High,
-                );
-                return;
-            }
-            Some(o) => o.clone(),
-        };
-
-        let Some(output_filename) = Self::resolve_output_filename(&output_filename) else {
+        let Some(output_filename) = Self::output_filename() else {
+            log_with_severity(
+                "No Output filename specified!",
+                LogLevel::Error,
+                LogSeverity::High,
+            );
             return;
         };
 

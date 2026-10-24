@@ -24,6 +24,7 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Marker tool uses style. [808]
 - Display shortcuts in the tool group menu. [#813]
 - Saving as jpg, the extension of the output filename selects the format, e.g. png or jpg; transparent areas become white in jpg. [#TODO]
+- Saving without `--output-filename` overwrites the input file, if the input is a file; before, saving to a file was disabled. [#TODO]
 
 ### Changed
 
