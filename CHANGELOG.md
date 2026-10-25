@@ -27,6 +27,7 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - New opacity style is used by highlighter and text tool. [#814]
 - Text determines style from fill and round_caps and thus it can be configured now. [#814]
 - Rotate and flip the screenshot in the menu of the crop tool button, or with the keybinds `rotate-image-left`, `rotate-image-right`, `flip-image-horizontal` and `flip-image-vertical`. [#TODO]
+- Saving as jpg, the extension of the output filename selects the format, e.g. png or jpg; transparent areas become white in jpg. [#TODO]
 
 ### Changed
 
@@ -45,6 +46,8 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Switching tools also changes tool bar styles to those owned by the tool. [#814]
 - Size in the bottom toolbar is now not a factor, but px, pt, or percent. [#814]
 - `annotation-size-factor` scales sizes once at app start. [#814]
+- Saving without `--output-filename` overwrites the input file, if the input is a file; before, saving to a file was disabled. [#TODO]
+- Saving without `--output-filename` and without an input file asks for a file with save as, which is then used for further saves. [#TODO]
 
 ### Deprecated
 
