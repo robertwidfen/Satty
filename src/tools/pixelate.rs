@@ -291,6 +291,10 @@ impl Drawable for Pixelate {
         *self.cached_image.borrow_mut() = None;
     }
 
+    fn handle_background_change(&mut self) {
+        *self.cached_image.borrow_mut() = None;
+    }
+
     fn get_style(&self) -> Option<&Style> {
         Some(&self.style)
     }

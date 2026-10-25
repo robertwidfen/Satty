@@ -200,6 +200,7 @@ fill = true
 # "<Control>q" = "run-actions-on-escape" # additionally to Escape
 # "i" = "none" # unbind "i" default for line
 # "l" = "line"
+# "<Control>r" = "rotate-image-right" # also rotate-image-left, flip-image-horizontal, flip-image-vertical
 
 # Global
 "<Shift><Control>d" = "open-gtk-inspector"

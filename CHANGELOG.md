@@ -51,6 +51,7 @@ Please check these when upgrading, especially if you use your own `config.toml` 
 - Lensblur tool <kbd>Shift+U</kbd> blurs everything but the marked area. [#804]
 - Blackout tool <kbd>Shift+X</kbd> blacks out the marked area. [#806]
 - Pen tool <kbd>p</kbd>, which draws like the brush did before. [#799]
+- Rotate and flip the screenshot in the menu of the crop tool button, or with the keybinds `rotate-image-left`, `rotate-image-right`, `flip-image-horizontal` and `flip-image-vertical`. [#TODO]
 - Grouped tools: related tools share one toolbar button. Open the menu with a long click or a click on the indicator; it also shows the shortcuts. [#600], [#717], [#799], [#813]
 - All toolbar buttons and commands can be bound to any key, including zoom, scale, size, fill and round caps. New defaults are e.g. <kbd>Ctrl+1</kbd> fit to window, <kbd>Alt+1</kbd> 100 %, <kbd>Ctrl+plus</kbd>/<kbd>Ctrl+minus</kbd> zoom, <kbd>f</kbd> toggle fill, <kbd>k</kbd> toggle round caps, <kbd>-</kbd> cycle size. Use `"none"` to unbind a key. [#555], [#606]
 - Shortcuts work with all keyboard layouts: they follow the active layout, also match keys typed with <kbd>Shift</kbd>, and fall back to a Latin layout or US QWERTY for non-Latin layouts like Cyrillic or Greek. [#608], [#771], [#772]
@@ -165,5 +166,6 @@ Thanks to everyone who contributed to this release:
 [#813]: https://github.com/Satty-org/Satty/pull/813
 [#814]: https://github.com/Satty-org/Satty/pull/814
 [#817]: https://github.com/Satty-org/Satty/pull/817
+[#TODO]: https://github.com/Satty-org/Satty/pull/TODO
 
 <!-- --8<-- [end:changelog] -->
