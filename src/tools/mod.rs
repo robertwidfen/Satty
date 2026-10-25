@@ -266,6 +266,9 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     -> Result<()>;
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
+    /// Called after the background image changed, e.g. by a rotation, to drop
+    /// what was computed from the old one.
+    fn handle_background_change(&mut self) {}
     fn get_rendering_mode(&self) -> RenderingMode {
         RenderingMode::Default
     }
