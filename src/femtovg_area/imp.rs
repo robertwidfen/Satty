@@ -33,6 +33,8 @@ use crate::{
     tools::{Drawable, RenderingMode, Tool, Tools, spotlight::render_spotlights},
 };
 
+use super::ImageTransform;
+
 const TRANSPARENCY_SQUARE_SIZE: usize = 64;
 
 #[derive(Default)]
@@ -50,6 +52,8 @@ pub struct FemtoVgAreaMut {
     background_image: Pixbuf,
     background_image_id_aliased: Option<femtovg::ImageId>,
     background_image_id_noaliasing: Option<femtovg::ImageId>,
+    // images of a replaced background, deleted on the next render
+    stale_images: Vec<femtovg::ImageId>,
     transparent_background_id: Option<femtovg::ImageId>,
     // background with blur/pixelate applied, as source for the blur spotlight: (image, content key)
     spotlight_source: Option<(femtovg::ImageId, u64)>,
@@ -80,6 +84,7 @@ enum HistoryEntry {
         index: usize,
         old: Box<dyn Drawable>,
     },
+    Background(ImageTransform),
     UpdateIndex {
         index: usize,
         new_index: usize,
@@ -215,6 +220,7 @@ impl FemtoVGArea {
         let initial_scale = APP_CONFIG.read().input_scale().unwrap_or(0.0);
         self.inner().replace(FemtoVgAreaMut {
             source_image: None,
+            stale_images: Vec::new(),
             background_image,
             background_image_id_noaliasing: None,
             background_image_id_aliased: None,
@@ -556,6 +562,11 @@ impl FemtoVgAreaMut {
                 }
                 true
             }
+            Some(HistoryEntry::Background(transform)) => {
+                self.apply_background_transform(transform.inverse());
+                self.redo_stack.push(HistoryEntry::Background(transform));
+                true
+            }
             None => false,
         }
     }
@@ -609,8 +620,50 @@ impl FemtoVgAreaMut {
                 }
                 true
             }
+            Some(HistoryEntry::Background(transform)) => {
+                self.apply_background_transform(transform);
+                self.undo_stack.push(HistoryEntry::Background(transform));
+                true
+            }
             None => false,
         }
+    }
+
+    pub fn image_size(&self) -> Vec2D {
+        Vec2D::new(
+            self.background_image.width() as f32,
+            self.background_image.height() as f32,
+        )
+    }
+
+    pub fn transform_background(&mut self, transform: ImageTransform) -> bool {
+        if !self.apply_background_transform(transform) {
+            return false;
+        }
+        self.undo_stack.push(HistoryEntry::Background(transform));
+        self.redo_stack.clear();
+        true
+    }
+
+    fn apply_background_transform(&mut self, transform: ImageTransform) -> bool {
+        let Some(image) = transform.apply(&self.background_image) else {
+            return false;
+        };
+        self.background_image = image;
+        // everything derived from the background has to be recreated
+        self.source_image = None;
+        self.stale_images.extend(
+            [
+                self.background_image_id_aliased.take(),
+                self.background_image_id_noaliasing.take(),
+            ]
+            .into_iter()
+            .flatten(),
+        );
+        for d in self.drawables.iter_mut() {
+            d.handle_background_change();
+        }
+        true
     }
 
     pub fn clear_all(&mut self) -> bool {
@@ -883,6 +936,9 @@ impl FemtoVgAreaMut {
         onscreen: bool,
         output_target: RenderTarget,
     ) -> Result<()> {
+        for id in self.stale_images.drain(..) {
+            canvas.delete_image(id);
+        }
         let source_image = self.ensure_source_image();
 
         // clear canvas

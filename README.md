@@ -147,6 +147,7 @@ fill = true
 - <kbd>Ctrl++</kbd> or <kbd>Ctrl+=</kbd>: Zoom in, <kbd>Ctrl+-</kbd>: Zoom out <sup>NEXTRELEASE</sup>
 - <kbd>Ctrl+1</kbd>: Fit to window, <kbd>Alt+1</kbd>: 100% <sup>NEXTRELEASE</sup>
 - <kbd>Ctrl+2</kbd>/<kbd>Ctrl+3</kbd>/<kbd>Ctrl+4</kbd>: 200%/300%/400%, <kbd>Alt+2</kbd>/<kbd>Alt+3</kbd>/<kbd>Alt+4</kbd>: 50%/33%/25% <sup>NEXTRELEASE</sup>
+- No default keys: `rotate-image-left`, `rotate-image-right`, `flip-image-horizontal`, `flip-image-vertical` rotate or flip the image, also available in the menu of the crop tool button. Annotations keep their position. <sup>NEXTRELEASE</sup>
 
 Mouse:
 

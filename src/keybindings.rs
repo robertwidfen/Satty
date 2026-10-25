@@ -9,6 +9,7 @@ use std::sync::OnceLock;
 use satty_cli::command_line::LogLevel;
 
 use crate::configuration::{APP_CONFIG, Action, log_config_error};
+use crate::femtovg_area::ImageTransform;
 use crate::logging::log;
 use crate::sketch_board::KeyEventMsg;
 use crate::style::SizePreset;
@@ -43,6 +44,7 @@ pub enum ShortcutCommand {
     Redo,
     RunAction(Action),
     PasteImage,
+    TransformImage(ImageTransform),
 
     // bottom toolbar
     SelectColorIndex(u64),
@@ -81,6 +83,12 @@ impl fmt::Display for ShortcutCommand {
             ShortcutCommand::ClearAll => "clear-all",
             ShortcutCommand::Undo => "undo",
             ShortcutCommand::Redo => "redo",
+            ShortcutCommand::TransformImage(transform) => match transform {
+                ImageTransform::RotateLeft => "rotate-image-left",
+                ImageTransform::RotateRight => "rotate-image-right",
+                ImageTransform::FlipHorizontal => "flip-image-horizontal",
+                ImageTransform::FlipVertical => "flip-image-vertical",
+            },
             ShortcutCommand::SelectTool(tool) => {
                 write!(f, "{}", tool.to_string().to_lowercase())?;
                 return Ok(());
@@ -156,6 +164,16 @@ impl FromStr for ShortcutCommand {
             "clear-all" => Ok(ShortcutCommand::ClearAll),
             "undo" => Ok(ShortcutCommand::Undo),
             "redo" => Ok(ShortcutCommand::Redo),
+            "rotate-image-left" => Ok(ShortcutCommand::TransformImage(ImageTransform::RotateLeft)),
+            "rotate-image-right" => {
+                Ok(ShortcutCommand::TransformImage(ImageTransform::RotateRight))
+            }
+            "flip-image-horizontal" => Ok(ShortcutCommand::TransformImage(
+                ImageTransform::FlipHorizontal,
+            )),
+            "flip-image-vertical" => Ok(ShortcutCommand::TransformImage(
+                ImageTransform::FlipVertical,
+            )),
             "select-tool" => Ok(ShortcutCommand::SelectTool(Tools::Rectangle)),
             "save-to-file" => Ok(ShortcutCommand::RunAction(Action::SaveToFile)),
             "save-to-file-as" => Ok(ShortcutCommand::RunAction(Action::SaveToFileAs)),

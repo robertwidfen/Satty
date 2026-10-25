@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use crate::{
     configuration::{APP_CONFIG, Action},
+    femtovg_area::ImageTransform,
     keybindings::{ShortcutCommand, ShortcutRegistry},
     math::{Vec2D, get_closest_aspect_ratio},
     style::{Color, Size, SizePreset, StyleField, StyleFields},
@@ -11,7 +12,9 @@ use crate::{
 };
 
 use crate::tools::GroupableTool;
-use crate::ui::tool_group_button::{ToolGroupButton, ToolGroupButtonInput, ToolGroupInit};
+use crate::ui::tool_group_button::{
+    GroupAction, ToolGroupButton, ToolGroupButtonInput, ToolGroupInit,
+};
 use relm4::gtk::{
     gdk::{Key, ModifierType},
     gdk_pixbuf::{
@@ -81,6 +84,7 @@ pub enum ToolbarEvent {
     SaveFileAs,
     ScaleFitToWindow,
     ScaleOriginal,
+    TransformImage(ImageTransform),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -547,7 +551,40 @@ impl SimpleComponent for ToolsToolbar {
         let initial_tool = APP_CONFIG.read().initial_tool();
         let mut tool_buttons = FactoryVecDeque::<ToolGroupButton>::builder()
             .launch(relm4::gtk::Box::default())
-            .detach();
+            .forward(sender.output_sender(), |event| event);
+
+        let transform_actions = [
+            (
+                ImageTransform::RotateLeft,
+                "arrow-counterclockwise-regular",
+                "Rotate left",
+            ),
+            (
+                ImageTransform::RotateRight,
+                "arrow-clockwise-regular",
+                "Rotate right",
+            ),
+            (
+                ImageTransform::FlipHorizontal,
+                "flip-horizontal-regular",
+                "Flip horizontal",
+            ),
+            (
+                ImageTransform::FlipVertical,
+                "flip-vertical-regular",
+                "Flip vertical",
+            ),
+        ]
+        .map(|(transform, icon_name, label)| {
+            let command = ShortcutCommand::TransformImage(transform);
+            GroupAction {
+                event: ToolbarEvent::TransformImage(transform),
+                icon_name: icon_name.into(),
+                label: label.into(),
+                tooltip: Some(get_hint(&shortcut_registry, command)),
+                shortcut: shortcut_registry.get_binding_for_command(command),
+            }
+        });
 
         let mut guard = tool_buttons.guard();
         for mut tg in tools {
@@ -556,8 +593,15 @@ impl SimpleComponent for ToolsToolbar {
                 g.tooltip = Some(get_hint(&shortcut_registry, command));
                 g.shortcut = shortcut_registry.get_binding_for_command(command);
             }
+            // one-shot image transforms live in the crop group's menu
+            let actions = if tg.iter().any(|g| g.tool == Tools::Crop) {
+                transform_actions.to_vec()
+            } else {
+                Vec::new()
+            };
             let init = ToolGroupInit {
                 group: tg,
+                actions,
                 initial_tool,
             };
             guard.push_back(init);

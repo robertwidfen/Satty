@@ -26,6 +26,7 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - All styles can be configured per tool, i.e. color, S, M, L, size, fill, round_caps, opacity. If not set they inherit from global style. [#814]
 - New opacity style is used by highlighter and text tool. [#814]
 - Text determines style from fill and round_caps and thus it can be configured now. [#814]
+- Rotate and flip the screenshot in the menu of the crop tool button, or with the keybinds `rotate-image-left`, `rotate-image-right`, `flip-image-horizontal` and `flip-image-vertical`. [#TODO]
 
 ### Changed
 
@@ -82,5 +83,6 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 [#810]: https://github.com/Satty-org/Satty/pull/810
 [#813]: https://github.com/Satty-org/Satty/pull/813
 [#814]: https://github.com/Satty-org/Satty/pull/814
+[#TODO]: https://github.com/Satty-org/Satty/pull/TODO
 
 <!-- --8<-- [end:changelog] -->

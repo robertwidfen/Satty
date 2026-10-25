@@ -10,7 +10,7 @@ use femtovg::{
     rgb::{RGB, RGBA},
 };
 use gtk::glib;
-use relm4::gtk::gdk_pixbuf::{Pixbuf, glib::subclass::types::ObjectSubclassIsExt};
+use relm4::gtk::gdk_pixbuf::{Pixbuf, PixbufRotation, glib::subclass::types::ObjectSubclassIsExt};
 use relm4::{
     Sender,
     gtk::{self, prelude::WidgetExt, subclass::prelude::GLAreaImpl},
@@ -22,6 +22,34 @@ use crate::{
     sketch_board::SketchBoardInput,
     tools::{Drawable, RenderingMode, Tool},
 };
+
+/// A lossless rotation or flip of the background image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageTransform {
+    RotateLeft,
+    RotateRight,
+    FlipHorizontal,
+    FlipVertical,
+}
+
+impl ImageTransform {
+    pub fn inverse(self) -> Self {
+        match self {
+            ImageTransform::RotateLeft => ImageTransform::RotateRight,
+            ImageTransform::RotateRight => ImageTransform::RotateLeft,
+            flip => flip,
+        }
+    }
+
+    pub fn apply(self, image: &Pixbuf) -> Option<Pixbuf> {
+        match self {
+            ImageTransform::RotateLeft => image.rotate_simple(PixbufRotation::Counterclockwise),
+            ImageTransform::RotateRight => image.rotate_simple(PixbufRotation::Clockwise),
+            ImageTransform::FlipHorizontal => image.flip(true),
+            ImageTransform::FlipVertical => image.flip(false),
+        }
+    }
+}
 
 static FONT_STACK: OnceLock<Vec<FontId>> = OnceLock::new();
 
@@ -152,6 +180,22 @@ impl FemtoVGArea {
 
     pub fn schedule_refresh_selection_after_render(&self, index: usize) {
         self.imp().schedule_refresh_selection_after_render(index);
+    }
+
+    pub fn transform_background(&mut self, transform: ImageTransform) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .transform_background(transform)
+    }
+
+    pub fn image_size(&self) -> Vec2D {
+        self.imp()
+            .inner()
+            .as_ref()
+            .expect("Did you call init before using FemtoVgArea?")
+            .image_size()
     }
 
     pub fn clear_all(&mut self) -> bool {

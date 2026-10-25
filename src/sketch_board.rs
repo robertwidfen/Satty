@@ -19,7 +19,7 @@ use relm4::gtk::gdk::{self, DisplayManager, Key, ModifierType, Texture};
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
 use crate::configuration::{APP_CONFIG, Action};
-use crate::femtovg_area::FemtoVGArea;
+use crate::femtovg_area::{FemtoVGArea, ImageTransform};
 use crate::image_loading;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::keybindings::{self, ActionTrigger, ShortcutCommand, ShortcutRegistry};
@@ -990,6 +990,8 @@ impl SketchBoard {
         } else if self.renderer.undo() {
             self.renderer.set_hidden_drawable_index(None);
             self.pointer_tool.borrow_mut().deselect();
+            // a rotation may have been undone, then the image size changes
+            self.sync_image_size(sender);
             self.emit_shape_dimensions(sender, self.current_output_dimensions());
             ToolUpdateResult::Redraw
         } else {
@@ -1003,11 +1005,43 @@ impl SketchBoard {
         } else if self.renderer.redo() {
             self.renderer.set_hidden_drawable_index(None);
             self.pointer_tool.borrow_mut().deselect();
+            // a rotation may have been undone, then the image size changes
+            self.sync_image_size(sender);
             self.emit_shape_dimensions(sender, self.current_output_dimensions());
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
         }
+    }
+
+    fn handle_transform_image(
+        &mut self,
+        transform: ImageTransform,
+        sender: &ComponentSender<Self>,
+    ) -> ToolUpdateResult {
+        // an annotation still being drawn would end up on the changed image
+        if self.active_tool.borrow().active() {
+            return ToolUpdateResult::Unmodified;
+        }
+        if !self.renderer.transform_background(transform) {
+            return ToolUpdateResult::Unmodified;
+        }
+        self.sync_image_size(sender);
+        ToolUpdateResult::Redraw
+    }
+
+    // picks up the size of the background image after it was rotated
+    fn sync_image_size(&mut self, sender: &ComponentSender<Self>) {
+        let size = self.renderer.image_size();
+        if self.image_bounds.1 == size {
+            return;
+        }
+        self.image_bounds = (Vec2D::zero(), size);
+        self.tools
+            .get(&Tools::Crop)
+            .borrow_mut()
+            .set_image_size(size);
+        self.emit_shape_dimensions(sender, self.current_output_dimensions());
     }
 
     fn handle_clear_all(&mut self, sender: &ComponentSender<Self>) -> ToolUpdateResult {
@@ -1455,6 +1489,9 @@ impl SketchBoard {
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::ScaleFitToWindow => self.handle_scale(0),
             ToolbarEvent::ScaleOriginal => self.handle_scale(100),
+            ToolbarEvent::TransformImage(transform) => {
+                self.handle_transform_image(transform, &sender)
+            }
         }
     }
 
@@ -1630,6 +1667,9 @@ impl SketchBoard {
                 ToolUpdateResult::Unmodified
             }
             ShortcutCommand::PasteImage => self.handle_paste_image(sender),
+            ShortcutCommand::TransformImage(transform) => {
+                self.handle_transform_image(transform, &sender)
+            }
             ShortcutCommand::OpenGtkInspector => {
                 gtk::Window::set_interactive_debugging(true);
                 ToolUpdateResult::Unmodified

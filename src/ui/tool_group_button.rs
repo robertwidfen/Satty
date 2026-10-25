@@ -2,13 +2,13 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::tools::{GroupableTool, Tools};
-use crate::ui::toolbars::ToolsAction;
+use crate::ui::toolbars::{ToolbarEvent, ToolsAction};
 use relm4::actions::ActionablePlus;
 use relm4::factory::{DynamicIndex, FactoryComponent};
 use relm4::gtk::prelude::{
     BoxExt, ButtonExt, EventControllerExt, GestureExt, PopoverExt, WidgetExt,
 };
-use relm4::gtk::{Align, Popover, ToggleButton};
+use relm4::gtk::{Align, Button, Popover, ToggleButton};
 use relm4::{FactorySender, RelmWidgetExt, view};
 
 thread_local! {
@@ -50,8 +50,20 @@ fn update_menu_indicator_hover(
     }
 }
 
+/// A one-shot action offered in a group's menu below its tools; it does not
+/// replace the group's current tool.
+#[derive(Debug, Clone)]
+pub struct GroupAction {
+    pub event: ToolbarEvent,
+    pub icon_name: String,
+    pub label: String,
+    pub tooltip: Option<String>,
+    pub shortcut: Option<String>,
+}
+
 pub struct ToolGroupInit {
     pub group: Vec<GroupableTool>,
+    pub actions: Vec<GroupAction>,
     pub initial_tool: Tools,
 }
 
@@ -62,6 +74,7 @@ pub struct ToolGroupWidgets {
 #[derive(Debug, Clone)]
 pub struct ToolGroupButton {
     group: Vec<GroupableTool>,
+    actions: Vec<GroupAction>,
     current: usize,
     editing: bool,
     is_active: bool,
@@ -105,14 +118,14 @@ impl ToolGroupButton {
     }
 
     pub fn has_extra(&self) -> bool {
-        self.group.len() > 1
+        self.group.len() + self.actions.len() > 1
     }
 }
 
 impl FactoryComponent for ToolGroupButton {
     type Init = ToolGroupInit;
     type Input = ToolGroupButtonInput;
-    type Output = ();
+    type Output = ToolbarEvent;
     type CommandOutput = ();
     type Root = relm4::gtk::Overlay;
     type Widgets = ToolGroupWidgets;
@@ -130,6 +143,7 @@ impl FactoryComponent for ToolGroupButton {
 
         Self {
             group: init.group,
+            actions: init.actions,
             current: pos,
             editing: false,
             is_active,
@@ -224,8 +238,9 @@ impl FactoryComponent for ToolGroupButton {
             right_click_controller.connect_pressed(move |gesture, _, _, _| {
                 gesture.set_state(relm4::gtk::EventSequenceState::Claimed);
             });
+            let right_click_sender = sender.clone();
             right_click_controller.connect_released(move |_, _, _, _| {
-                sender.input(ToolGroupButtonInput::OpenPopover);
+                right_click_sender.input(ToolGroupButtonInput::OpenPopover);
             });
             root.add_controller(right_click_controller);
 
@@ -247,6 +262,34 @@ impl FactoryComponent for ToolGroupButton {
                 let popover = self.popover.clone();
                 button.connect_clicked(move |_| popover.popdown());
                 ActionablePlus::set_action::<ToolsAction>(&button, tool.tool);
+                rows.append(&button);
+            }
+            if !self.actions.is_empty() {
+                rows.append(&relm4::gtk::Separator::new(
+                    relm4::gtk::Orientation::Horizontal,
+                ));
+            }
+            for action in &self.actions {
+                let button = Button::builder().focusable(false).build();
+                let inner_box = relm4::gtk::Box::new(relm4::gtk::Orientation::Horizontal, 2);
+                let icon = relm4::gtk::Image::from_icon_name(&action.icon_name);
+                let label = relm4::gtk::Label::new(Some(&menu_label(
+                    &action.label,
+                    action.shortcut.as_deref(),
+                )));
+                inner_box.append(&icon);
+                inner_box.append(&label);
+                button.set_child(Some(&inner_box));
+                if let Some(tooltip) = &action.tooltip {
+                    button.set_tooltip(tooltip);
+                }
+                let popover = self.popover.clone();
+                let action_sender = sender.clone();
+                let event = action.event;
+                button.connect_clicked(move |_| {
+                    popover.popdown();
+                    action_sender.output(event).ok();
+                });
                 rows.append(&button);
             }
             self.popover.set_child(Some(&rows));
