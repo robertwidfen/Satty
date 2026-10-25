@@ -56,8 +56,10 @@ pub struct CommandLine {
     #[arg(long)]
     pub floating_hack: bool,
 
-    /// Filename to use for saving action or `-` to print to stdout. Omit to disable saving to file. Might contain format
-    /// specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>.
+    /// Filename to use for saving action or `-` to print to stdout. If omitted, saving overwrites the input file,
+    /// if the input is a file, or else asks for a file with save as, which is used for further saves (NEXTRELEASE).
+    /// The extension selects the format, e.g. png or jpg (NEXTRELEASE).
+    /// Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>.
     /// Since 0.20.0, can contain tilde (~) for home dir
     #[arg(short, long)]
     pub output_filename: Option<String>,
@@ -66,10 +68,11 @@ pub struct CommandLine {
     #[arg(long, value_delimiter = ',', num_args=0.., default_missing_value = "all")]
     pub early_exit: Option<Vec<EarlyExitTriggers>>,
 
-    /// Draw corners of rectangles round if the value is greater than 0
+    /// Radius of the rounded corners of rectangles in pixels
     /// (Defaults to 12) (0 disables rounded corners)
-    #[arg(long)]
-    pub corner_roundness: Option<f32>,
+    /// (NEXTRELEASE: renamed from --corner-roundness, which is still accepted)
+    #[arg(long, visible_alias = "corner-roundness")]
+    pub corner_radius: Option<f32>,
 
     /// Select the tool on startup
     #[arg(long, value_name = "TOOL", visible_alias = "init-tool")]
@@ -79,7 +82,7 @@ pub struct CommandLine {
     #[arg(long)]
     pub copy_command: Option<String>,
 
-    /// Increase or decrease the size of the annotations
+    /// Scale style size of tools using line width
     #[arg(long)]
     pub annotation_size_factor: Option<f32>,
 
@@ -288,6 +291,7 @@ pub enum Tools {
     Brush,
     Line,
     Arrow,
+    Measure,
     Rectangle,
     Ellipse,
     Text,
@@ -332,6 +336,7 @@ impl std::fmt::Display for Tools {
             Brush => "brush",
             Line => "line",
             Arrow => "arrow",
+            Measure => "measure",
             Rectangle => "rectangle",
             Ellipse => "ellipse",
             Text => "text",

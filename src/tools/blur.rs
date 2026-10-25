@@ -11,6 +11,7 @@ use relm4::{Sender, gtk::gdk::Key};
 
 use crate::tools::{SelectionType, SpotlightData};
 use crate::{
+    configuration::APP_CONFIG,
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
@@ -146,6 +147,10 @@ impl Drawable for Blur {
         *self.cached_image.borrow_mut() = None;
     }
 
+    fn handle_background_change(&mut self) {
+        *self.cached_image.borrow_mut() = None;
+    }
+
     fn get_style(&self) -> Option<&Style> {
         Some(&self.style)
     }
@@ -154,7 +159,7 @@ impl Drawable for Blur {
         *self.cached_image.borrow_mut() = None;
         self.style = style;
         if self.is_spotlight {
-            *self.shared_lensblur_sigma.lock().unwrap() = style.blur_factor();
+            *self.shared_lensblur_sigma.lock().unwrap() = sigma(&style);
         }
     }
 
@@ -189,14 +194,20 @@ impl Drawable for Blur {
             self.cached_image.borrow_mut().replace(Self::blur(
                 canvas,
                 source_size,
-                self.style.blur_factor(),
+                sigma(&self.style),
                 background_image_id,
             )?);
         }
 
         let mut path = Path::new();
         if self.style.fill {
-            path.rounded_rect(tl.x, tl.y, size.x, size.y, self.style.corner_radius());
+            path.rounded_rect(
+                tl.x,
+                tl.y,
+                size.x,
+                size.y,
+                self.style.effective_corner_radius(),
+            );
         } else {
             let (center, radii) = (tl + size / 2.0, size / 2.0);
             path.ellipse(center.x, center.y, radii.x, radii.y);
@@ -279,7 +290,7 @@ impl Drawable for Blur {
         super::spotlight::draw_spotlight_layer(
             canvas,
             boxes,
-            self.style.corner_radius(),
+            self.style.effective_corner_radius(),
             output_target,
             &self.cached_layer,
             |canvas| {
@@ -302,6 +313,11 @@ impl Drawable for Blur {
     }
 }
 
+/// The blur sigma is the size.
+fn sigma(style: &Style) -> f32 {
+    style.size.at_least(1.0)
+}
+
 #[derive(Default)]
 pub struct BlurTool {
     is_spotlight: bool,
@@ -314,8 +330,8 @@ pub struct BlurTool {
 
 impl BlurTool {
     pub(crate) fn spotlight() -> Self {
-        let style = Style::default();
-        let sigma = style.blur_factor();
+        let style = APP_CONFIG.read().style_for(Tools::Lensblur);
+        let sigma = sigma(&style);
         BlurTool {
             is_spotlight: true,
             shared_lens_blur_sigma: Arc::new(Mutex::new(sigma)),
@@ -455,7 +471,7 @@ impl Tool for BlurTool {
         self.style = style;
         if self.is_spotlight {
             let mut shared_sigma = self.shared_lens_blur_sigma.lock().unwrap();
-            *shared_sigma = self.style.blur_factor();
+            *shared_sigma = sigma(&self.style);
         }
         ToolUpdateResult::Unmodified
     }

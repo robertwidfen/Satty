@@ -45,6 +45,7 @@ mod highlight;
 mod image;
 mod line;
 mod marker;
+mod measure;
 mod pixelate;
 mod pointer;
 mod rectangle;
@@ -266,6 +267,9 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     -> Result<()>;
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
+    /// Called after the background image changed, e.g. by a rotation, to drop
+    /// what was computed from the old one.
+    fn handle_background_change(&mut self) {}
     fn get_rendering_mode(&self) -> RenderingMode {
         RenderingMode::Default
     }
@@ -491,6 +495,7 @@ pub use ellipse::EllipseTool;
 pub use highlight::{HighlightTool, Highlighters};
 pub use image::{ImagePlacement, ImageTool};
 pub use line::LineTool;
+pub use measure::{MeasureTool, format_line_dimensions};
 pub use pixelate::PixelateTool;
 pub use pointer::PointerTool;
 pub use rectangle::RectangleTool;
@@ -516,6 +521,7 @@ pub enum Tools {
     Brush,
     Line,
     Arrow,
+    Measure,
     Rectangle,
     Ellipse,
     Text,
@@ -531,6 +537,13 @@ pub enum Tools {
     Image,
 }
 
+impl Tools {
+    /// Whether the tool can have a style of its own.
+    pub fn has_own_style(self) -> bool {
+        !matches!(self, Tools::Pointer | Tools::Crop)
+    }
+}
+
 impl fmt::Display for Tools {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match self {
@@ -541,6 +554,7 @@ impl fmt::Display for Tools {
             Tools::Brush => "Brush",
             Tools::Line => "Line",
             Tools::Arrow => "Arrow",
+            Tools::Measure => "Measure",
             Tools::Rectangle => "Rectangle",
             Tools::Ellipse => "Ellipse",
             Tools::Text => "Text",
@@ -563,7 +577,7 @@ impl fmt::Display for Tools {
 pub struct ParseCommandError;
 
 /// The names of the tools in the config, the keybinds and on the command line.
-const TOOL_NAMES: [(&str, Tools); 20] = [
+const TOOL_NAMES: [(&str, Tools); 21] = [
     ("pointer", Tools::Pointer),
     ("crop", Tools::Crop),
     ("pen", Tools::Pen),
@@ -571,6 +585,7 @@ const TOOL_NAMES: [(&str, Tools); 20] = [
     ("brush", Tools::Brush),
     ("line", Tools::Line),
     ("arrow", Tools::Arrow),
+    ("measure", Tools::Measure),
     ("rectangle", Tools::Rectangle),
     ("ellipse", Tools::Ellipse),
     ("text", Tools::Text),
@@ -639,6 +654,10 @@ impl ToolsManager {
         );
         tools.insert(Tools::Line, Rc::new(RefCell::new(LineTool::default())));
         tools.insert(Tools::Arrow, Rc::new(RefCell::new(ArrowTool::default())));
+        tools.insert(
+            Tools::Measure,
+            Rc::new(RefCell::new(MeasureTool::default())),
+        );
         tools.insert(
             Tools::Rectangle,
             Rc::new(RefCell::new(RectangleTool::default())),
@@ -746,6 +765,7 @@ impl FromVariant for Tools {
             v if v == Tools::Brush as u32 => Some(Tools::Brush),
             v if v == Tools::Line as u32 => Some(Tools::Line),
             v if v == Tools::Arrow as u32 => Some(Tools::Arrow),
+            v if v == Tools::Measure as u32 => Some(Tools::Measure),
             v if v == Tools::Rectangle as u32 => Some(Tools::Rectangle),
             v if v == Tools::Ellipse as u32 => Some(Tools::Ellipse),
             v if v == Tools::Text as u32 => Some(Tools::Text),
@@ -774,6 +794,7 @@ impl From<command_line::Tools> for Tools {
             command_line::Tools::Brush => Self::Brush,
             command_line::Tools::Line => Self::Line,
             command_line::Tools::Arrow => Self::Arrow,
+            command_line::Tools::Measure => Self::Measure,
             command_line::Tools::Rectangle => Self::Rectangle,
             command_line::Tools::Ellipse => Self::Ellipse,
             command_line::Tools::Text => Self::Text,

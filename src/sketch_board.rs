@@ -5,6 +5,7 @@ use femtovg::rgb::{ComponentBytes, RGBA};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gdk_pixbuf::glib::Bytes;
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::io::Write;
 use std::panic;
 use std::path::{Path, PathBuf};
@@ -17,14 +18,15 @@ use gtk::prelude::*;
 use relm4::gtk::gdk::{self, DisplayManager, Key, ModifierType, Texture};
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
-use crate::configuration::{APP_CONFIG, Action};
-use crate::femtovg_area::FemtoVGArea;
+use crate::configuration::{APP_CONFIG, Action, Input};
+use crate::femtovg_area::{FemtoVGArea, ImageTransform};
 use crate::image_loading;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::keybindings::{self, ActionTrigger, ShortcutCommand, ShortcutRegistry};
 use crate::logging::{LogLevel, LogSeverity, log, log_result_with_pixbuf, log_with_severity};
 use crate::math::{Vec2D, crop_rect_in_bounds};
-use crate::style::{Color, Size, Style};
+use crate::style::{Color, Size, SizePreset, Style, StyleField, StyleFields};
+
 use crate::tools::{
     ImagePlacement, PointerTool, RenderingMode, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools,
     ToolsManager,
@@ -70,8 +72,10 @@ pub enum SketchBoardOutput {
     ColorSwitchShortcut(u64),
     SetColor(Color),
     SetSize(Size),
-    SetAnnotationSizeFactor(f32),
-    FocusAnnotationSizeFactorShortcut,
+    SetSizePresets([Size; 3]),
+    /// the active tool and the style fields it has itself
+    SetStyleScope(Tools, StyleFields),
+    FocusSizeShortcut,
     SetFill(bool),
     SetRoundCaps(bool),
     DimensionsUpdate(Vec2D),
@@ -343,15 +347,83 @@ pub struct SketchBoard {
     text_tool: Rc<RefCell<TextTool>>,
     return_to_pointer_after_text_commit: bool,
     temporary_pointer_previous_tool: Option<Tools>,
+    // the style shown in the toolbar, of the active tool or the selected drawable
     style: Style,
+    // shared by the tools for the fields they do not have themselves
+    general_style: Style,
+    tool_styles: HashMap<Tools, ToolStyle>,
     pointer_layer_scroll_accumulator: f32,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
+    // file chosen with save as, used for saving if there is no output or input file
+    save_as_filename: RefCell<Option<String>>,
     // last pointer position in canvas coordinates, used to paste at the cursor
     last_pointer_pos: Option<Vec2D>,
 }
 
+/// The own fields of a tool, the others are taken from the general style.
+struct ToolStyle {
+    style: Style,
+    own: StyleFields,
+}
+
 impl SketchBoard {
+    fn tool_style(&mut self, tool: Tools) -> &mut ToolStyle {
+        self.tool_styles.entry(tool).or_insert_with(|| {
+            let config = APP_CONFIG.read();
+            ToolStyle {
+                style: config.style_for(tool),
+                own: config.own_style_fields(tool),
+            }
+        })
+    }
+
+    fn effective_style(&mut self, tool: Tools) -> Style {
+        let general = self.general_style;
+        let tool_style = self.tool_style(tool);
+        tool_style.style.merged_with(&general, tool_style.own)
+    }
+
+    /// Whether style changes go to the drawable selected with the pointer.
+    fn styling_selection(&self) -> bool {
+        self.active_tool_type() == Tools::Pointer
+            && self.pointer_tool.borrow().selected_index().is_some()
+    }
+
+    /// Stores the changed `field` of the toolbar style for the active tool if
+    /// it has the field itself, else in the general style for all tools.
+    fn store_style_field(&mut self, field: StyleField) {
+        if self.styling_selection() {
+            return;
+        }
+        let style = self.style;
+        let tool_style = self.tool_style(self.active_tool_type());
+        if tool_style.own.contains(field) {
+            tool_style.style.copy_field(field, &style);
+        } else {
+            self.general_style.copy_field(field, &style);
+        }
+    }
+
+    /// Clears the pointer selection; with the pointer active the toolbar then
+    /// shows the general style again instead of the one of the drawable.
+    fn deselect(&mut self, sender: &ComponentSender<Self>) {
+        let had_selection = self.pointer_tool.borrow().selected_index().is_some();
+        self.pointer_tool.borrow_mut().deselect();
+        if had_selection && self.active_tool_type() == Tools::Pointer {
+            self.style = self.effective_style(Tools::Pointer);
+            self.emit_style_to_toolbar(sender);
+        }
+    }
+
+    fn emit_style_scope(&mut self, sender: &ComponentSender<Self>) {
+        let tool = self.active_tool_type();
+        let own = self.tool_style(tool).own;
+        sender
+            .output_sender()
+            .emit(SketchBoardOutput::SetStyleScope(tool, own));
+    }
+
     fn sync_toolbar_style_from_drawable(
         &mut self,
         drawable: &dyn crate::tools::Drawable,
@@ -373,12 +445,10 @@ impl SketchBoard {
                 .output_sender()
                 .emit(SketchBoardOutput::SetSize(style.size));
         }
-        if old_style.annotation_size_factor != style.annotation_size_factor {
+        if old_style.presets != style.presets {
             sender
                 .output_sender()
-                .emit(SketchBoardOutput::SetAnnotationSizeFactor(
-                    style.annotation_size_factor,
-                ));
+                .emit(SketchBoardOutput::SetSizePresets(style.presets));
         }
         if old_style.fill != style.fill {
             sender
@@ -391,6 +461,15 @@ impl SketchBoard {
                 .emit(SketchBoardOutput::SetRoundCaps(style.round_caps));
         }
         self.style = *style;
+    }
+
+    fn emit_style_to_toolbar(&self, sender: &ComponentSender<Self>) {
+        let output = sender.output_sender();
+        output.emit(SketchBoardOutput::SetColor(self.style.color));
+        output.emit(SketchBoardOutput::SetSizePresets(self.style.presets));
+        output.emit(SketchBoardOutput::SetSize(self.style.size));
+        output.emit(SketchBoardOutput::SetFill(self.style.fill));
+        output.emit(SketchBoardOutput::SetRoundCaps(self.style.round_caps));
     }
 
     fn set_drawable_style_from_toolbar_style(&mut self) -> ToolUpdateResult {
@@ -488,6 +567,14 @@ impl SketchBoard {
                         }
                     }
                 }
+                // without a file to save to, ask for one; it is used for later saves
+                Action::SaveToFile if self.output_filename().is_none() => {
+                    if let Some(pix_buf) = pix_buf {
+                        let early_exit = APP_CONFIG.read().early_exit_save();
+                        self.handle_save_as(early_exit, pix_buf, sender, iter.collect());
+                    }
+                    return;
+                }
                 Action::SaveToFile => {
                     if let Some(ref pix_buf) = pix_buf {
                         self.handle_save(pix_buf);
@@ -498,10 +585,8 @@ impl SketchBoard {
                 from the callback rather than further iterating actions here */
                 Action::SaveToFileAs => {
                     if let Some(pix_buf) = pix_buf {
-                        let followup_actions: Vec<Action> = iter.collect();
-                        let is_modal =
-                            APP_CONFIG.read().early_exit_save_as() || !followup_actions.is_empty();
-                        self.handle_save_as(is_modal, pix_buf, sender, followup_actions);
+                        let early_exit = APP_CONFIG.read().early_exit_save_as();
+                        self.handle_save_as(early_exit, pix_buf, sender, iter.collect());
                     }
                     return;
                 }
@@ -574,17 +659,80 @@ impl SketchBoard {
         Some(output_filename)
     }
 
-    fn configured_output_path() -> Option<PathBuf> {
-        APP_CONFIG
-            .read()
-            .output_filename()
-            .and_then(|output_filename| {
-                if output_filename == "-" {
-                    None
-                } else {
-                    Self::resolve_output_filename(output_filename).map(PathBuf::from)
+    fn configured_output_path(&self) -> Option<PathBuf> {
+        self.output_filename()
+            .filter(|output_filename| output_filename != "-")
+            .map(PathBuf::from)
+    }
+
+    /// Returns the configured output filename, or the input file if there is none,
+    /// so that saving overwrites the opened image, or else the file last chosen
+    /// with save as.
+    fn output_filename(&self) -> Option<String> {
+        let config = APP_CONFIG.read();
+        match (config.output_filename(), config.input()) {
+            (Some(output_filename), _) => Self::resolve_output_filename(output_filename),
+            (None, Some(Input::File(input_filename))) => Some(input_filename.clone()),
+            (None, _) => self.save_as_filename.borrow().clone(),
+        }
+    }
+
+    /// Encodes `image` in the format of the extension of `path`, png if there is
+    /// none. Supported are the formats gdk-pixbuf can write, e.g. png and jpg.
+    fn encode_image(image: &Pixbuf, path: Option<&Path>) -> Result<Vec<u8>, String> {
+        let extension = path
+            .and_then(Path::extension)
+            .map(|extension| extension.to_string_lossy().to_lowercase());
+        let format = match extension {
+            None => "png".to_owned(),
+            Some(extension) => Pixbuf::formats()
+                .iter()
+                .filter(|format| format.is_writable())
+                .find(|format| format.extensions().iter().any(|e| *e == extension))
+                .and_then(|format| format.name())
+                .map(String::from)
+                .ok_or_else(|| format!("saving as .{extension} is not supported"))?,
+        };
+        if format != "jpeg" {
+            return image
+                .save_to_bufferv(&format, &[])
+                .map_err(|e| e.to_string());
+        }
+        // jpeg has no alpha channel and gdk-pixbuf writes a gray image for one;
+        // its default quality of 75 is rather low
+        Self::without_alpha(image)
+            .save_to_bufferv(&format, &[("quality", "90")])
+            .map_err(|e| e.to_string())
+    }
+
+    /// Returns `image` without alpha channel, put on a white background.
+    fn without_alpha(image: &Pixbuf) -> Pixbuf {
+        if !image.has_alpha() {
+            return image.clone();
+        }
+        let (width, height) = (image.width(), image.height());
+        let rowstride = image.rowstride() as usize;
+        let channels = image.n_channels() as usize;
+        let pixels = image.read_pixel_bytes();
+        let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
+        for y in 0..height as usize {
+            for x in 0..width as usize {
+                let i = y * rowstride + x * channels;
+                let alpha = u32::from(pixels[i + 3]);
+                for c in &pixels[i..i + 3] {
+                    rgb.push(((u32::from(*c) * alpha + 255 * (255 - alpha)) / 255) as u8);
                 }
-            })
+            }
+        }
+        Pixbuf::from_bytes(
+            &Bytes::from_owned(rgb),
+            relm4::gtk::gdk_pixbuf::Colorspace::Rgb,
+            false,
+            8,
+            width,
+            height,
+            width * 3,
+        )
     }
 
     fn save_as_last_dir_file() -> Option<PathBuf> {
@@ -642,33 +790,18 @@ impl SketchBoard {
     }
 
     fn handle_save(&self, image: &Pixbuf) {
-        let output_filename = match APP_CONFIG.read().output_filename() {
-            None => {
-                log_with_severity(
-                    "No Output filename specified!",
-                    LogLevel::Error,
-                    LogSeverity::High,
-                );
-                return;
-            }
-            Some(o) => o.clone(),
-        };
-
-        let Some(output_filename) = Self::resolve_output_filename(&output_filename) else {
-            return;
-        };
-
-        // TODO: we could support more data types
-        if output_filename != "-" && !output_filename.ends_with(".png") {
+        let Some(output_filename) = self.output_filename() else {
             log_with_severity(
-                "The only supported format is png, but the filename does not end in png",
+                "No Output filename specified!",
                 LogLevel::Error,
                 LogSeverity::High,
             );
             return;
-        }
+        };
 
-        let data = match image.save_to_bufferv("png", &Vec::new()) {
+        // "-" means stdout, which gets png
+        let path = (output_filename != "-").then(|| Path::new(&output_filename));
+        let data = match Self::encode_image(image, path) {
             Ok(d) => d,
             Err(e) => {
                 log_with_severity(
@@ -676,6 +809,7 @@ impl SketchBoard {
                     LogLevel::Error,
                     LogSeverity::High,
                 );
+
                 return;
             }
         };
@@ -710,14 +844,16 @@ impl SketchBoard {
         };
     }
 
+    /// Asks for a file and saves `pixbuf` to it, exits afterwards if `early_exit`
     fn handle_save_as(
         &self,
-        is_modal: bool,
+        early_exit: bool,
         pixbuf: Pixbuf,
         sender: ComponentSender<Self>,
         followup_actions: Vec<Action>,
     ) {
-        let configured_output_path = Self::configured_output_path();
+        let is_modal = early_exit || !followup_actions.is_empty();
+        let configured_output_path = self.configured_output_path();
         let initial_dir = Self::save_as_initial_dir(
             Self::save_as_last_dir_file().as_deref(),
             configured_output_path.as_deref(),
@@ -727,27 +863,16 @@ impl SketchBoard {
             .and_then(Path::file_name)
             .map(|name| name.to_string_lossy().into_owned());
 
-        let data = match pixbuf.save_to_bufferv("png", &Vec::new()) {
-            Ok(d) => d,
-            Err(e) => {
-                log_with_severity(
-                    &format!("Error serializing image: {e}"),
-                    LogLevel::Error,
-                    LogSeverity::High,
-                );
-                return;
-            }
-        };
-
         let root = self.renderer.toplevel_window();
 
         relm4::spawn_local(async move {
-            let builder = gtk::FileChooserNative::builder()
-                .modal(is_modal)
-                .title("Save Image As")
-                .action(gtk::FileChooserAction::Save)
-                .accept_label("Save")
-                .cancel_label("Cancel");
+            let builder: gtk::builders::FileChooserNativeBuilder =
+                gtk::FileChooserNative::builder()
+                    .modal(is_modal)
+                    .title("Save Image As")
+                    .action(gtk::FileChooserAction::Save)
+                    .accept_label("Save")
+                    .cancel_label("Cancel");
 
             let dialog = match root {
                 Some(w) => builder.transient_for(&w),
@@ -781,14 +906,19 @@ impl SketchBoard {
                         None => return,
                     };
 
-                    match Self::write_image_file(Path::new(&output_filename), &data) {
+                    let written = Self::encode_image(&pixbuf, Some(Path::new(&output_filename)))
+                        .and_then(|data| {
+                            Self::write_image_file(Path::new(&output_filename), &data)
+                                .map_err(|e| e.to_string())
+                        });
+                    match written {
                         Err(e) => log_with_severity(
                             &format!("Error while saving file '{output_filename}': {e}"),
                             LogLevel::Error,
                             LogSeverity::High,
                         ),
                         Ok(_) => {
-                            exit_app = APP_CONFIG.read().early_exit_save_as();
+                            exit_app = early_exit;
                             filename = Some(output_filename.clone());
                             Self::remember_save_as_dir(Path::new(&output_filename));
                             log_result_with_pixbuf(
@@ -923,7 +1053,9 @@ impl SketchBoard {
             self.active_tool.borrow_mut().handle_undo()
         } else if self.renderer.undo() {
             self.renderer.set_hidden_drawable_index(None);
-            self.pointer_tool.borrow_mut().deselect();
+            self.deselect(sender);
+            // a rotation may have been undone, then the image size changes
+            self.sync_image_size(sender);
             self.emit_shape_dimensions(sender, self.current_output_dimensions());
             ToolUpdateResult::Redraw
         } else {
@@ -936,7 +1068,9 @@ impl SketchBoard {
             self.active_tool.borrow_mut().handle_redo()
         } else if self.renderer.redo() {
             self.renderer.set_hidden_drawable_index(None);
-            self.pointer_tool.borrow_mut().deselect();
+            self.deselect(sender);
+            // a rotation may have been undone, then the image size changes
+            self.sync_image_size(sender);
             self.emit_shape_dimensions(sender, self.current_output_dimensions());
             ToolUpdateResult::Redraw
         } else {
@@ -944,12 +1078,42 @@ impl SketchBoard {
         }
     }
 
+    fn handle_transform_image(
+        &mut self,
+        transform: ImageTransform,
+        sender: &ComponentSender<Self>,
+    ) -> ToolUpdateResult {
+        // an annotation still being drawn would end up on the changed image
+        if self.active_tool.borrow().active() {
+            return ToolUpdateResult::Unmodified;
+        }
+        if !self.renderer.transform_background(transform) {
+            return ToolUpdateResult::Unmodified;
+        }
+        self.sync_image_size(sender);
+        ToolUpdateResult::Redraw
+    }
+
+    // picks up the size of the background image after it was rotated
+    fn sync_image_size(&mut self, sender: &ComponentSender<Self>) {
+        let size = self.renderer.image_size();
+        if self.image_bounds.1 == size {
+            return;
+        }
+        self.image_bounds = (Vec2D::zero(), size);
+        self.tools
+            .get(&Tools::Crop)
+            .borrow_mut()
+            .set_image_size(size);
+        self.emit_shape_dimensions(sender, self.current_output_dimensions());
+    }
+
     fn handle_clear_all(&mut self, sender: &ComponentSender<Self>) -> ToolUpdateResult {
         // can't use lazy || here
         let did_reset = self.deactivate_active_tool() | self.renderer.clear_all();
 
         self.renderer.set_hidden_drawable_index(None);
-        self.pointer_tool.borrow_mut().deselect();
+        self.deselect(sender);
         self.emit_shape_dimensions(sender, self.current_output_dimensions());
 
         // Reset marker numbering after drawable undo hooks ran.
@@ -1197,7 +1361,7 @@ impl SketchBoard {
 
         // Clicked on empty space: deselect
         self.renderer.set_hidden_drawable_index(None);
-        self.pointer_tool.borrow_mut().deselect();
+        self.deselect(sender);
         self.emit_shape_dimensions(sender, self.current_output_dimensions());
         Some(ToolUpdateResult::Redraw)
     }
@@ -1216,7 +1380,7 @@ impl SketchBoard {
             .clone();
 
         // Remove the committed drawable and clear selection
-        self.pointer_tool.borrow_mut().deselect();
+        self.deselect(sender);
         self.renderer.set_hidden_drawable_index(None);
         self.renderer.remove_drawable(idx);
 
@@ -1304,7 +1468,10 @@ impl SketchBoard {
                     .borrow_mut()
                     .set_sender(sender.input_sender().clone());
 
-                // send style event
+                // switch to the style of the new tool
+                self.style = self.effective_style(target_tool);
+                self.emit_style_to_toolbar(&sender);
+                self.emit_style_scope(&sender);
                 self.active_tool
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style));
@@ -1317,13 +1484,17 @@ impl SketchBoard {
             }
             ToolbarEvent::ColorSelected(color) => {
                 self.style.color = color;
+                self.store_style_field(StyleField::Color);
                 self.set_drawable_style_from_toolbar_style()
             }
+            // from the size field, which already shows it: sending it back could
+            // arrive after further changes and set the field back to an old value
             ToolbarEvent::SizeSelected(size) => {
+                if self.style.size == size {
+                    return ToolUpdateResult::Unmodified;
+                }
                 self.style.size = size;
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::SetSize(size));
+                self.store_style_field(StyleField::Size);
                 self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::SaveFile => self.handle_action(&[Action::SaveToFile]),
@@ -1333,6 +1504,7 @@ impl SketchBoard {
             ToolbarEvent::ClearAll => self.handle_clear_all(&sender),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
+                self.store_style_field(StyleField::Fill);
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::SetFill(self.style.fill));
@@ -1340,22 +1512,51 @@ impl SketchBoard {
             }
             ToolbarEvent::ToggleRoundCaps => {
                 self.style.round_caps = !self.style.round_caps;
+                self.store_style_field(StyleField::RoundCaps);
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::SetRoundCaps(self.style.round_caps));
                 self.set_drawable_style_from_toolbar_style()
             }
-            ToolbarEvent::AnnotationSizeFactorChanged(value) => {
-                self.style.annotation_size_factor = value;
-                self.set_drawable_style_from_toolbar_style()
+            ToolbarEvent::SizePresetSelected(preset) => {
+                let size = self.style.preset(preset);
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SetSize(size));
+                self.handle_toolbar_event(ToolbarEvent::SizeSelected(size), sender)
             }
             ToolbarEvent::SetFill(fill_enabled) => {
                 self.style.fill = fill_enabled;
+                self.store_style_field(StyleField::Fill);
                 self.set_drawable_style_from_toolbar_style()
+            }
+            ToolbarEvent::SetStyleFieldOwn(field, own) => {
+                // edit the general style if the tool cannot have an own style
+                if !self.active_tool_type().has_own_style() {
+                    return ToolUpdateResult::Unmodified;
+                }
+                // the tool takes the current value, or gets the general one again
+                let tool = self.active_tool_type();
+                let style = self.style;
+                let tool_style = self.tool_style(tool);
+                tool_style.own.set(field, own);
+                if own {
+                    tool_style.style.copy_field(field, &style);
+                }
+                self.style = self.effective_style(tool);
+                self.emit_style_to_toolbar(&sender);
+                self.emit_style_scope(&sender);
+                self.active_tool
+                    .borrow_mut()
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+                ToolUpdateResult::Redraw
             }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::ScaleFitToWindow => self.handle_scale(0),
             ToolbarEvent::ScaleOriginal => self.handle_scale(100),
+            ToolbarEvent::TransformImage(transform) => {
+                self.handle_transform_image(transform, &sender)
+            }
         }
     }
 
@@ -1490,27 +1691,27 @@ impl SketchBoard {
                     .emit(SketchBoardOutput::ColorSwitchShortcut(index));
                 ToolUpdateResult::Unmodified
             }
-            ShortcutCommand::SelectSize(size) => {
-                sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::SizeSelected(
-                    size,
-                )));
+            ShortcutCommand::SelectSize(preset) => {
+                sender.input(SketchBoardInput::ToolbarEvent(
+                    ToolbarEvent::SizePresetSelected(preset),
+                ));
                 ToolUpdateResult::Unmodified
             }
             ShortcutCommand::CycleSize => {
-                self.style.size = match self.style.size {
-                    Size::Small => Size::Large,
-                    Size::Medium => Size::Small,
-                    Size::Large => Size::Medium,
-                };
-                sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::SizeSelected(
-                    self.style.size,
-                )));
+                let preset = self
+                    .style
+                    .matching_preset()
+                    .unwrap_or(SizePreset::Medium)
+                    .cycled();
+                sender.input(SketchBoardInput::ToolbarEvent(
+                    ToolbarEvent::SizePresetSelected(preset),
+                ));
                 ToolUpdateResult::Unmodified
             }
-            ShortcutCommand::FocusAnnotationSizeFactor => {
+            ShortcutCommand::FocusSize => {
                 sender
                     .output_sender()
-                    .emit(SketchBoardOutput::FocusAnnotationSizeFactorShortcut);
+                    .emit(SketchBoardOutput::FocusSizeShortcut);
                 ToolUpdateResult::Unmodified
             }
             ShortcutCommand::ToggleFill => {
@@ -1531,6 +1732,9 @@ impl SketchBoard {
                 ToolUpdateResult::Unmodified
             }
             ShortcutCommand::PasteImage => self.handle_paste_image(sender),
+            ShortcutCommand::TransformImage(transform) => {
+                self.handle_transform_image(transform, &sender)
+            }
             ShortcutCommand::OpenGtkInspector => {
                 gtk::Window::set_interactive_debugging(true);
                 ToolUpdateResult::Unmodified
@@ -1570,7 +1774,7 @@ impl SketchBoard {
             ShortcutCommand::DeleteSelection => {
                 let pointer_selection = self.pointer_tool.borrow().selected_index();
                 if let Some(idx) = pointer_selection {
-                    self.pointer_tool.borrow_mut().deselect();
+                    self.deselect(&sender);
                     self.renderer.set_hidden_drawable_index(None);
                     self.renderer.remove_drawable(idx);
                     // without the drawable, also without a deleted crop
@@ -1856,7 +2060,7 @@ impl Component for SketchBoard {
                         && self.active_tool_type() == Tools::Pointer
                         && self.pointer_tool.borrow().selected_index().is_some()
                     {
-                        self.pointer_tool.borrow_mut().deselect();
+                        self.deselect(&sender);
                         self.renderer.set_hidden_drawable_index(None);
                         self.emit_shape_dimensions(&sender, self.current_output_dimensions());
                         ToolUpdateResult::Redraw
@@ -1970,6 +2174,7 @@ impl Component for SketchBoard {
             }
             SketchBoardInput::RenderResultFollowup(pix_buf, action, filename) => {
                 if filename.is_some() {
+                    self.save_as_filename.replace(filename.clone());
                     *self.last_saved_filepath.borrow_mut() = filename;
                 }
                 self.handle_render_result_with_pixbuf(pix_buf, action, sender);
@@ -2061,7 +2266,7 @@ impl Component for SketchBoard {
                         self.temporary_pointer_previous_tool = Some(previous_tool);
                     }
                 } else {
-                    self.pointer_tool.borrow_mut().deselect();
+                    self.deselect(&sender_for_post_commit);
                 }
 
                 if APP_CONFIG.read().auto_copy() {
@@ -2132,7 +2337,9 @@ impl Component for SketchBoard {
             shortcut_registry: ShortcutRegistry::from_config(),
             active_tool: tools.get(&config.initial_tool()),
             tool_edit_mode: false,
-            style: Style::default(),
+            style: config.style_for(config.initial_tool()),
+            general_style: config.style(),
+            tool_styles: HashMap::new(),
             pointer_layer_scroll_accumulator: 0.0,
             pinch_last_scale: 1.0,
             pointer_tool,
@@ -2142,8 +2349,15 @@ impl Component for SketchBoard {
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),
+            save_as_filename: RefCell::new(None),
             last_pointer_pos: None,
         };
+
+        // the other tools get their style when switching to them
+        model
+            .active_tool
+            .borrow_mut()
+            .handle_event(ToolEvent::StyleChanged(model.style));
 
         let area = &mut model.renderer;
         area.init(
@@ -2256,6 +2470,100 @@ impl KeyEventMsg {
 #[cfg(test)]
 mod tests {
     use super::SketchBoard;
+    use relm4::gtk::gdk_pixbuf::{Colorspace, Pixbuf};
+
+    fn encode(extension: Option<&str>) -> Result<Vec<u8>, String> {
+        let image = Pixbuf::new(Colorspace::Rgb, true, 8, 4, 4).unwrap();
+        image.fill(0x3366_99cc);
+        let path = extension.map(|e| PathBuf::from(format!("image.{e}")));
+        SketchBoard::encode_image(&image, path.as_deref())
+    }
+
+    #[test]
+    fn encodes_by_extension() {
+        const PNG: &[u8] = b"\x89PNG";
+        const JPEG: &[u8] = b"\xff\xd8\xff";
+        assert!(encode(None).unwrap().starts_with(PNG));
+        assert!(encode(Some("png")).unwrap().starts_with(PNG));
+        // jpeg has no alpha channel, the image has one
+        assert!(encode(Some("jpg")).unwrap().starts_with(JPEG));
+        assert!(encode(Some("jpeg")).unwrap().starts_with(JPEG));
+        assert!(encode(Some("JPG")).unwrap().starts_with(JPEG));
+    }
+
+    /// Encodes a red | blue RGBA image like a rendered one and decodes it again
+    fn round_trip(extension: &str) -> Pixbuf {
+        let (w, h) = (16, 8);
+        let mut bytes = Vec::new();
+        for _ in 0..h {
+            for x in 0..w {
+                bytes.extend(if x < w / 2 {
+                    [255, 0, 0, 255]
+                } else {
+                    [0, 0, 255, 255]
+                });
+            }
+        }
+        let image = Pixbuf::from_bytes(
+            &relm4::gtk::glib::Bytes::from(&bytes),
+            Colorspace::Rgb,
+            true,
+            8,
+            w,
+            h,
+            w * 4,
+        );
+        let path = PathBuf::from(format!("image.{extension}"));
+        let data = SketchBoard::encode_image(&image, Some(&path)).unwrap();
+        let stream =
+            relm4::gtk::gio::MemoryInputStream::from_bytes(&relm4::gtk::glib::Bytes::from(&data));
+        Pixbuf::from_stream(&stream, relm4::gtk::gio::Cancellable::NONE).unwrap()
+    }
+
+    fn pixel(image: &Pixbuf, x: usize, y: usize) -> [u8; 3] {
+        let bytes = image.read_pixel_bytes();
+        let i = y * image.rowstride() as usize + x * image.n_channels() as usize;
+        [bytes[i], bytes[i + 1], bytes[i + 2]]
+    }
+
+    #[test]
+    fn keeps_colors_by_extension() {
+        for extension in ["png", "jpg"] {
+            let image = round_trip(extension);
+            let (red, blue) = (pixel(&image, 2, 4), pixel(&image, 13, 4));
+            assert!(
+                red[0] > 200 && red[1] < 50 && red[2] < 50,
+                "{extension}: {red:?}"
+            );
+            assert!(
+                blue[0] < 50 && blue[1] < 50 && blue[2] > 200,
+                "{extension}: {blue:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn transparency_becomes_white_in_jpeg() {
+        let image = Pixbuf::new(Colorspace::Rgb, true, 8, 4, 4).unwrap();
+        image.fill(0x0000_0000);
+        assert_eq!(
+            SketchBoard::without_alpha(&image).read_pixel_bytes()[..3],
+            [255, 255, 255]
+        );
+        image.fill(0x0000_ff80);
+        assert_eq!(
+            SketchBoard::without_alpha(&image).read_pixel_bytes()[..3],
+            [127, 127, 255]
+        );
+    }
+
+    #[test]
+    fn unknown_extension_is_an_error() {
+        assert_eq!(
+            encode(Some("xyz")),
+            Err("saving as .xyz is not supported".to_owned())
+        );
+    }
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};

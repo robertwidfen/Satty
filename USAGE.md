@@ -42,26 +42,26 @@ Modern Screenshot Annotation.
 :   Try to enforce floating (0.20.1). Mileage may vary depending on compositor
 
 `-o`, `--output-filename <OUTPUT_FILENAME>`
-:   Filename to use for saving action or `-` to print to stdout. Omit to disable saving to file. Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>. Since 0.20.0, can contain tilde (~) for home dir
+:   Filename to use for saving action or `-` to print to stdout. If omitted, saving overwrites the input file, if the input is a file, or else asks for a file with save as, which is used for further saves (NEXTRELEASE). The extension selects the format, e.g. png or jpg (NEXTRELEASE). Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>. Since 0.20.0, can contain tilde (~) for home dir
 
 `--early-exit <EARLY_EXIT>`
 :   Exit directly after save action. 0.21.0: changed to accommodate different triggers
 
     Possible values: `all`, `copy`, `save`, `save-as`
 
-`--corner-roundness <CORNER_ROUNDNESS>`
-:   Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
+`--corner-radius <CORNER_RADIUS>`
+:   Radius of the rounded corners of rectangles in pixels (Defaults to 12) (0 disables rounded corners) (NEXTRELEASE: renamed from --corner-roundness, which is still accepted)
 
 `--initial-tool <TOOL>`
 :   Select the tool on startup
 
-    Possible values: `pointer`, `crop`, `pen`, `highlighter`, `brush`, `line`, `arrow`, `rectangle`, `ellipse`, `text`, `marker`, `fringe-pixelate`, `pixelate`, `fringe`, `blur`, `blackout`, `highlight`, `spotlight`, `lensblur`, `image`
+    Possible values: `pointer`, `crop`, `pen`, `highlighter`, `brush`, `line`, `arrow`, `measure`, `rectangle`, `ellipse`, `text`, `marker`, `fringe-pixelate`, `pixelate`, `fringe`, `blur`, `blackout`, `highlight`, `spotlight`, `lensblur`, `image`
 
 `--copy-command <COPY_COMMAND>`
 :   Configure the command to be called on copy, for example `wl-copy`
 
 `--annotation-size-factor <ANNOTATION_SIZE_FACTOR>`
-:   Increase or decrease the size of the annotations
+:   Scale style size of tools using line width
 
 `--save-after-copy`
 :   After copying the screenshot, save it to a file as well
