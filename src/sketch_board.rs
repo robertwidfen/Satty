@@ -348,6 +348,8 @@ pub struct SketchBoard {
     pointer_tool: Rc<RefCell<PointerTool>>,
     text_tool: Rc<RefCell<TextTool>>,
     return_to_pointer_after_text_commit: bool,
+    // index of the text edited after a double click, hidden while it is edited
+    text_edit_index: Option<usize>,
     temporary_pointer_previous_tool: Option<Tools>,
     // the style shown in the toolbar, of the active tool or the selected drawable
     style: Style,
@@ -553,17 +555,46 @@ impl SketchBoard {
     }
 
     fn deactivate_active_tool(&mut self) -> bool {
-        if self.active_tool.borrow().active()
-            && let ToolUpdateResult::Commit(drawable) =
-                self.active_tool.borrow_mut().handle_deactivated()
-        {
-            if self.is_drawable_too_small(drawable.as_ref()) {
-                return true;
-            };
-            self.renderer.commit(drawable);
-            return true;
+        if !self.active_tool.borrow().active() {
+            return false;
         }
-        false
+        let result = self.active_tool.borrow_mut().handle_deactivated();
+        let ToolUpdateResult::Commit(drawable) = result else {
+            return false;
+        };
+        if self.is_drawable_too_small(drawable.as_ref()) {
+            self.cancel_text_edit();
+        } else {
+            self.commit_drawable(drawable);
+        }
+        true
+    }
+
+    /// Commits `drawable` and returns its index. A text edited after a double
+    /// click replaces the original, so it keeps its layer and one undo brings
+    /// the original back.
+    fn commit_drawable(&mut self, drawable: Box<dyn crate::tools::Drawable>) -> Option<usize> {
+        if let Some(index) = self.text_edit_index.take() {
+            self.renderer.set_hidden_drawable_index(None);
+            self.renderer.replace_drawable(index, drawable);
+            Some(index)
+        } else {
+            self.renderer.commit(drawable);
+            self.renderer.last_drawable_index()
+        }
+    }
+
+    /// Ends the edit of a text after a double click without a commit: an
+    /// emptied text deletes the original, else it is shown again, e.g. after
+    /// Escape.
+    fn cancel_text_edit(&mut self) {
+        let emptied = self.text_tool.borrow_mut().take_emptied();
+        if let Some(index) = self.text_edit_index.take() {
+            self.renderer.set_hidden_drawable_index(None);
+            if emptied {
+                self.renderer.remove_drawable(index);
+            }
+        }
     }
 
     fn handle_action(&mut self, actions: &[Action]) -> ToolUpdateResult {
@@ -1328,10 +1359,9 @@ impl SketchBoard {
             .downcast_ref::<crate::tools::Text>()?
             .clone();
 
-        // Remove the committed drawable and clear selection
+        // Hide the committed drawable while it is edited, the commit replaces it
         self.deselect(sender);
         self.renderer.set_hidden_drawable_index(None);
-        self.renderer.remove_drawable(idx);
 
         // Pre-populate the text tool and switch to it
         self.text_tool.borrow_mut().load_for_editing(text);
@@ -1344,8 +1374,10 @@ impl SketchBoard {
             crate::ui::toolbars::ToolbarEvent::ToolSelected(Tools::Text),
             sender.clone(),
         );
-        // Set after the switch, because every tool selection clears it.
+        // Set after the switch, because every tool selection clears them.
         self.return_to_pointer_after_text_commit = true;
+        self.text_edit_index = Some(idx);
+        self.renderer.set_hidden_drawable_index(Some(idx));
         Some(result)
     }
 
@@ -1390,6 +1422,7 @@ impl SketchBoard {
 
                 // handles also commit
                 self.deactivate_active_tool();
+                self.cancel_text_edit();
 
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
@@ -2143,6 +2176,9 @@ impl Component for SketchBoard {
         let editing = self.active_tool.borrow().active();
         if editing != self.tool_edit_mode {
             self.tool_edit_mode = editing;
+            if !editing && !matches!(result, ToolUpdateResult::Commit(_)) {
+                self.cancel_text_edit();
+            }
             // An edit that ends without a commit, such as an emptied text, also returns to
             // the pointer. The commit case is handled below, after the drawable is committed.
             if !editing
@@ -2163,14 +2199,14 @@ impl Component for SketchBoard {
         match result {
             ToolUpdateResult::Commit(drawable) => {
                 if self.is_drawable_too_small(drawable.as_ref()) {
+                    self.cancel_text_edit();
                     self.refresh_screen();
                     return;
                 };
                 let auto_select = APP_CONFIG.read().auto_select();
 
-                // commit first, so the index of the new drawable is the last one
                 let selection = auto_select.then(|| drawable.clone_box());
-                self.renderer.commit(drawable);
+                let committed_index = self.commit_drawable(drawable);
 
                 // after the commit, so a new crop is included; queued after any
                 // live drag update so the final display is authoritative
@@ -2179,7 +2215,7 @@ impl Component for SketchBoard {
                 ));
 
                 if let Some(selection) = selection {
-                    if let Some(index) = self.renderer.last_drawable_index() {
+                    if let Some(index) = committed_index {
                         self.pointer_tool
                             .borrow_mut()
                             .set_selection(index, selection.as_ref());
@@ -2212,7 +2248,7 @@ impl Component for SketchBoard {
                         ToolbarEvent::ToolSelected(Tools::Pointer),
                         sender_for_post_commit,
                     );
-                    if let Some(index) = self.renderer.last_drawable_index() {
+                    if let Some(index) = committed_index {
                         self.update_pointer_tool_selection(index, true);
                     }
                 }
@@ -2280,6 +2316,7 @@ impl Component for SketchBoard {
             pointer_tool,
             text_tool,
             return_to_pointer_after_text_commit: false,
+            text_edit_index: None,
             temporary_pointer_previous_tool: None,
             tools,
             im_context,
