@@ -99,6 +99,7 @@ Please check these when upgrading, especially if you use your own `config.toml` 
 - The canvas has the focus at start, not the size field. [#824]
 - Add CSS variables for compatibility with newer GTK and Adawait. [#826]
 - The text cursor and the box of an empty text are visible again while editing. [#827]
+- The custom color dialog grows to fit the color editor opened with "+" instead of cutting it off. [#TODO]
 
 ### Contributors
 
@@ -190,5 +191,6 @@ Thanks to everyone who contributed to this release:
 [#826]: https://github.com/Satty-org/Satty/pull/826
 [#827]: https://github.com/Satty-org/Satty/pull/827
 [#830]: https://github.com/Satty-org/Satty/pull/830
+[#TODO]: https://github.com/Satty-org/Satty/pull/TODO
 
 <!-- --8<-- [end:changelog] -->

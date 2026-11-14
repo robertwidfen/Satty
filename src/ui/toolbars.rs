@@ -1,6 +1,4 @@
-use std::borrow::Cow;
-use std::cell::Cell;
-use std::rc::Rc;
+use std::{borrow::Cow, cell::Cell, rc::Rc};
 
 use crate::{
     configuration::{APP_CONFIG, Action},
@@ -179,6 +177,21 @@ fn format_line_dimensions(delta: Vec2D) -> (String, String) {
     // which would turn 180° into -180°, and + 0.0 avoids showing -0
     let angle = (0.0 - delta.y).atan2(delta.x).to_degrees().round() + 0.0;
     (length, format!("{angle}°"))
+}
+
+/// Depth-first search for the first widget of type `T` below `widget`.
+fn find_descendant<T: IsA<gtk::Widget>>(widget: &gtk::Widget) -> Option<T> {
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        if let Some(found) = c.downcast_ref::<T>() {
+            return Some(found.clone());
+        }
+        if let Some(found) = find_descendant::<T>(&c) {
+            return Some(found);
+        }
+        child = c.next_sibling();
+    }
+    None
 }
 
 fn get_hint(shortcut_registry: &ShortcutRegistry, command: ShortcutCommand) -> String {
@@ -595,6 +608,44 @@ impl StyleToolbar {
                     &custom_colors,
                 );
             }
+
+            // The window is sized for the palette when it is shown. The editor behind
+            // "+" is larger, but GTK keeps the size of a shown window and the dialog's
+            // scroller caps the content height, so the editor would be cut off.
+            let reshown = Rc::new(Cell::new(false));
+            dialog.connect_show_editor_notify(move |dialog| {
+                if !dialog.shows_editor() || reshown.replace(true) {
+                    return;
+                }
+                if let Some(scroller) = find_descendant::<gtk::ScrolledWindow>(dialog.upcast_ref())
+                {
+                    scroller.set_max_content_height(-1);
+                }
+                // -1 sizes the window to the natural size of its content
+                dialog.set_default_size(-1, -1);
+                // Compositors like Hyprland keep the size of a shown floating window,
+                // so show it again to get the new size. Hiding switches back to the
+                // palette, so open the editor again with its color, like "+" does,
+                // before showing it. Do it after the click on "+" has been handled.
+                let color = dialog.rgba();
+                let dialog = dialog.clone();
+                gtk::glib::idle_add_local_once(move || {
+                    dialog.set_visible(false);
+                    if let Some(chooser) =
+                        find_descendant::<gtk::ColorChooserWidget>(dialog.upcast_ref())
+                    {
+                        let rgba = (
+                            f64::from(color.red()),
+                            f64::from(color.green()),
+                            f64::from(color.blue()),
+                            f64::from(color.alpha()),
+                        );
+                        let _ =
+                            chooser.activate_action("color.customize", Some(&rgba.to_variant()));
+                    }
+                    dialog.present();
+                });
+            });
 
             // set callback for result
             let dialog_copy = dialog.clone();
