@@ -72,6 +72,7 @@ fn main() -> Result<(), io::Error> {
             "circle-line-filled",
             "crop-filled",
             "arrow-up-right-filled",
+            "ruler-regular",
             "rectangle-landscape-regular",
             "paint-bucket-filled",
             "paint-bucket-regular",

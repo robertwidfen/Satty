@@ -103,6 +103,7 @@ A triangle in the top left corner of a style button in the toolbar shows that th
 The size means:
 
 - pen, brush, line, arrow, rectangle, ellipse: line width (at least 0.5), sizes from the general style, by default 3/5/7
+- measure: line width (at least 0.5), by default 1/2/3, starting with 1
 - highlighter: width, by default 15/30/45
 - text, marker: font size (at least 4), by default 36/54/96
 - pixelate, fringe-pixelate: block size (at least 2), by default 4/8/16
@@ -111,7 +112,7 @@ The size means:
 
 Blur, highlight block and blackout are filled by default, i.e. drawn as rectangle instead of ellipse. <sup>experimental</sup>
 
-`annotation-size-factor` in `[general]` or on the command line scales the sizes of the tools using line widths or font sizes once at startup: pen, brush, highlighter, line, arrow, rectangle, ellipse, text and marker.
+`annotation-size-factor` in `[general]` or on the command line scales the sizes of the tools using line widths or font sizes once at startup: pen, brush, highlighter, line, arrow, measure, rectangle, ellipse, text and marker.
 Other sizes, like block size, blur strength or opacity, are not scaled.
 
 Examples:
@@ -200,6 +201,7 @@ Default shortcuts:
 - <kbd>b</kbd>: Brush tool (soft edges) <sup>NEXTRELEASE</sup>
 - <kbd>i</kbd>: Line tool
 - <kbd>z</kbd>: Arrow tool
+- <kbd>Shift+I</kbd>: Measure tool <sup>NEXTRELEASE</sup>
 - <kbd>r</kbd>: Rectangle tool
 - <kbd>e</kbd>: Ellipse tool
 - <kbd>t</kbd>: Text tool
@@ -274,7 +276,7 @@ Formats are those gdk-pixbuf has a loader for, plus webp.
 
 ### Tool Modifiers and Keys
 
-Pen, Brush, Highlighter, Line and Arrow:
+Pen, Brush, Highlighter, Line, Arrow and Measure:
 
 - Hold <kbd>Shift</kbd> for a straight 15° aligned line. Release <kbd>Shift</kbd> to continue freehand, or hold it again to start another straight segment. (for Pen, Brush and Highlighter in <sup>NEXTRELEASE</sup>)
 - <kbd>Ctrl</kbd> for a horizontal line. <sup>NEXTRELEASE</sup>

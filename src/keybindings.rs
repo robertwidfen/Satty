@@ -426,6 +426,7 @@ impl ShortcutRegistry {
         registry.add_key_binding("b", SC::SelectTool(Tools::Brush));
         registry.add_key_binding("i", SC::SelectTool(Tools::Line));
         registry.add_key_binding("z", SC::SelectTool(Tools::Arrow));
+        registry.add_key_binding("<Shift>i", SC::SelectTool(Tools::Measure));
         registry.add_key_binding("r", SC::SelectTool(Tools::Rectangle));
         registry.add_key_binding("e", SC::SelectTool(Tools::Ellipse));
         registry.add_key_binding("t", SC::SelectTool(Tools::Text));

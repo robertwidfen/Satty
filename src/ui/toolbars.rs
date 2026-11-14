@@ -11,7 +11,7 @@ use crate::{
     tools::Tools,
 };
 
-use crate::tools::GroupableTool;
+use crate::tools::{GroupableTool, format_line_dimensions};
 use crate::ui::tool_group_button::{
     GroupAction, ToolGroupButton, ToolGroupButtonInput, ToolGroupInit,
 };
@@ -257,19 +257,6 @@ fn create_icon(color: Color) -> gtk::Image {
     gtk::Image::from_pixbuf(Some(&create_icon_pixbuf(color)))
 }
 
-/// Length and angle of a line from its start to its end. The angle is
-/// counterclockwise from the right, from -180° to 180°.
-fn format_line_dimensions(delta: Vec2D) -> (String, String) {
-    let length = format!("{:.0}px", delta.norm());
-    if delta.norm() < f32::EPSILON {
-        return (length, String::new());
-    }
-    // y points down on screen; 0.0 - y instead of -y gives no negative zero,
-    // which would turn 180° into -180°, and + 0.0 avoids showing -0
-    let angle = (0.0 - delta.y).atan2(delta.x).to_degrees().round() + 0.0;
-    (length, format!("{angle}°"))
-}
-
 fn get_hint(shortcut_registry: &ShortcutRegistry, command: ShortcutCommand) -> String {
     let command_name = command.to_string();
     let shortcut_hint = shortcut_registry.get_binding_for_command(command);
@@ -459,6 +446,12 @@ impl SimpleComponent for ToolsToolbar {
                 GroupableTool {
                     tool: Tools::Arrow,
                     icon_name: "arrow-up-right-filled".into(),
+                    tooltip: None,
+                    shortcut: None,
+                },
+                GroupableTool {
+                    tool: Tools::Measure,
+                    icon_name: "ruler-regular".into(),
                     tooltip: None,
                     shortcut: None,
                 },

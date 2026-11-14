@@ -119,7 +119,7 @@ opacity = 100
 
 # Styles per tool, tables are named like the tools in [keybinds] and accept the same keys as [style].
 # Tools below come with their own sizes, the general sizes do not apply to them.
-# If size is not set, it is the medium size.
+# If size is not set, it is the medium size, for measure the small one.
 
 # width
 [style.highlighter]
@@ -127,6 +127,14 @@ small = 15
 medium = 30
 large = 45
 opacity = 40
+
+# line width, thin for measuring pixels
+# square ends, so the ticks end flush with the measured pixels
+[style.measure]
+small = 1
+medium = 2
+large = 3
+round-caps = false
 
 # font size
 # fill and round-caps select the effect: none (false, true), inverted outline (true, false),
@@ -242,6 +250,7 @@ fill = true
 "b" = "brush"
 "i" = "line"
 "z" = "arrow"
+"<Shift>i" = "measure"
 "r" = "rectangle"
 "e" = "ellipse"
 "t" = "text"

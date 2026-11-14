@@ -730,7 +730,7 @@ impl Configuration {
             .and_then(|s| s.size)
             .or_else(|| builtin.is_none().then_some(general.size).flatten())
             .map(|v| Size::new(v * factor))
-            .unwrap_or(presets[1]);
+            .unwrap_or(presets[builtin_start_preset(tool)]);
 
         let resolve = |s: &StyleFile| {
             s.color
@@ -930,8 +930,15 @@ fn builtin_size_presets(tool: Tools) -> Option<[f32; 3]> {
         Tools::Pixelate | Tools::FringePixelate => Some([4.0, 8.0, 16.0]),
         Tools::Blur | Tools::Lensblur => Some([4.0, 8.0, 16.0]),
         Tools::BlockHighlighter | Tools::HighlightSpotlight => Some([40.0, 60.0, 80.0]),
+        Tools::Measure => Some([1.0, 2.0, 3.0]),
         _ => None,
     }
+}
+
+/// Index of the preset a tool starts with if its size is not set: the
+/// medium one, the small one for thin lines measuring pixels.
+fn builtin_start_preset(tool: Option<Tools>) -> usize {
+    if tool == Some(Tools::Measure) { 0 } else { 1 }
 }
 
 /// Tools whose size is a line width or font size.
@@ -943,6 +950,7 @@ fn scales_with_annotation_size_factor(tool: Tools) -> bool {
             | Tools::Highlighter
             | Tools::Line
             | Tools::Arrow
+            | Tools::Measure
             | Tools::Rectangle
             | Tools::Ellipse
             | Tools::Text
@@ -977,7 +985,12 @@ fn builtin_fill(tool: Tools) -> Option<bool> {
 
 /// Built-in round caps, see builtin_fill.
 fn builtin_round_caps(tool: Tools) -> Option<bool> {
-    (tool == Tools::Text).then_some(true)
+    match tool {
+        Tools::Text => Some(true),
+        // square ends, so the ticks end flush with the measured pixels
+        Tools::Measure => Some(false),
+        _ => None,
+    }
 }
 
 /// A color in the config, either a 1-based index into the palette or a hex color.
@@ -1189,6 +1202,15 @@ mod tests {
         assert_eq!(config.style_for(Tools::Highlighter).opacity, 40.0);
         assert_eq!(config.style_for(Tools::Text).opacity, 0.0);
         assert!(!config.style_for(Tools::Text).fill);
+        let measure = config.style_for(Tools::Measure);
+        assert!(!measure.round_caps);
+        assert_eq!(measure.presets.map(Size::value), [1.0, 2.0, 3.0]);
+        assert_eq!(measure.size.value(), 1.0);
+        assert!(
+            config
+                .own_style_fields(Tools::Measure)
+                .contains(StyleField::RoundCaps)
+        );
         assert_eq!(line.color, Color::orange());
 
         assert!(config.style_for(Tools::Blur).fill);
