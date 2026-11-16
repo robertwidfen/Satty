@@ -73,6 +73,9 @@ Please check these when upgrading, especially if you use your own `config.toml` 
 - New config `notification-grace-period` to wait for the notification daemon to read the thumbnail before exiting. [#635]
 - New `--log-level` option, log output has level and severity, and a dialog is shown for fatal errors. [#711]
 - Documentation website at <https://satty-org.github.io/Satty/>. [#668], [#763], [#830]
+- Saving as jpg, the extension of the output filename selects the format, e.g. png or jpg; transparent areas become white in jpg. [#TODO]
+- Saving without `--output-filename` overwrites the input file, if the input is a file; before, saving to a file was disabled. [#TODO]
+- Saving without `--output-filename` and without an input file asks for a file with save as, which is then used for further saves. [#TODO]
 
 ### Changed
 
@@ -101,6 +104,7 @@ Please check these when upgrading, especially if you use your own `config.toml` 
 - The canvas has the focus at start, not the size field. [#824]
 - Add CSS variables for compatibility with newer GTK and Adawait. [#826]
 - The text cursor and the box of an empty text are visible again while editing. [#827]
+- The custom color dialog grows to fit the color editor opened with "+" instead of cutting it off. [#TODO]
 
 ### Contributors
 

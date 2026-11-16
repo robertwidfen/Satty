@@ -18,7 +18,7 @@ use gtk::prelude::*;
 use relm4::gtk::gdk::{self, DisplayManager, Key, ModifierType, Texture};
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
-use crate::configuration::{APP_CONFIG, Action};
+use crate::configuration::{APP_CONFIG, Action, Input};
 use crate::femtovg_area::{FemtoVGArea, ImageTransform};
 use crate::image_loading;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
@@ -348,6 +348,8 @@ pub struct SketchBoard {
     pointer_tool: Rc<RefCell<PointerTool>>,
     text_tool: Rc<RefCell<TextTool>>,
     return_to_pointer_after_text_commit: bool,
+    // index of the text edited after a double click, hidden while it is edited
+    text_edit_index: Option<usize>,
     temporary_pointer_previous_tool: Option<Tools>,
     // the style shown in the toolbar, of the active tool or the selected drawable
     style: Style,
@@ -359,6 +361,8 @@ pub struct SketchBoard {
     pointer_layer_scroll_accumulator: f32,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
+    // file chosen with save as, used for saving if there is no output or input file
+    save_as_filename: RefCell<Option<String>>,
     // last pointer position in canvas coordinates, used to paste at the cursor
     last_pointer_pos: Option<Vec2D>,
 }
@@ -553,17 +557,46 @@ impl SketchBoard {
     }
 
     fn deactivate_active_tool(&mut self) -> bool {
-        if self.active_tool.borrow().active()
-            && let ToolUpdateResult::Commit(drawable) =
-                self.active_tool.borrow_mut().handle_deactivated()
-        {
-            if self.is_drawable_too_small(drawable.as_ref()) {
-                return true;
-            };
-            self.renderer.commit(drawable);
-            return true;
+        if !self.active_tool.borrow().active() {
+            return false;
         }
-        false
+        let result = self.active_tool.borrow_mut().handle_deactivated();
+        let ToolUpdateResult::Commit(drawable) = result else {
+            return false;
+        };
+        if self.is_drawable_too_small(drawable.as_ref()) {
+            self.cancel_text_edit();
+        } else {
+            self.commit_drawable(drawable);
+        }
+        true
+    }
+
+    /// Commits `drawable` and returns its index. A text edited after a double
+    /// click replaces the original, so it keeps its layer and one undo brings
+    /// the original back.
+    fn commit_drawable(&mut self, drawable: Box<dyn crate::tools::Drawable>) -> Option<usize> {
+        if let Some(index) = self.text_edit_index.take() {
+            self.renderer.set_hidden_drawable_index(None);
+            self.renderer.replace_drawable(index, drawable);
+            Some(index)
+        } else {
+            self.renderer.commit(drawable);
+            self.renderer.last_drawable_index()
+        }
+    }
+
+    /// Ends the edit of a text after a double click without a commit: an
+    /// emptied text deletes the original, else it is shown again, e.g. after
+    /// Escape.
+    fn cancel_text_edit(&mut self) {
+        let emptied = self.text_tool.borrow_mut().take_emptied();
+        if let Some(index) = self.text_edit_index.take() {
+            self.renderer.set_hidden_drawable_index(None);
+            if emptied {
+                self.renderer.remove_drawable(index);
+            }
+        }
     }
 
     fn handle_action(&mut self, actions: &[Action]) -> ToolUpdateResult {
@@ -597,6 +630,14 @@ impl SketchBoard {
                         }
                     }
                 }
+                // without a file to save to, ask for one; it is used for later saves
+                Action::SaveToFile if self.output_filename().is_none() => {
+                    if let Some(pix_buf) = pix_buf {
+                        let early_exit = APP_CONFIG.read().early_exit_save();
+                        self.handle_save_as(early_exit, pix_buf, sender, iter.collect());
+                    }
+                    return;
+                }
                 Action::SaveToFile => {
                     if let Some(ref pix_buf) = pix_buf {
                         self.handle_save(pix_buf);
@@ -607,10 +648,8 @@ impl SketchBoard {
                 from the callback rather than further iterating actions here */
                 Action::SaveToFileAs => {
                     if let Some(pix_buf) = pix_buf {
-                        let followup_actions: Vec<Action> = iter.collect();
-                        let is_modal =
-                            APP_CONFIG.read().early_exit_save_as() || !followup_actions.is_empty();
-                        self.handle_save_as(is_modal, pix_buf, sender, followup_actions);
+                        let early_exit = APP_CONFIG.read().early_exit_save_as();
+                        self.handle_save_as(early_exit, pix_buf, sender, iter.collect());
                     }
                     return;
                 }
@@ -683,17 +722,80 @@ impl SketchBoard {
         Some(output_filename)
     }
 
-    fn configured_output_path() -> Option<PathBuf> {
-        APP_CONFIG
-            .read()
-            .output_filename()
-            .and_then(|output_filename| {
-                if output_filename == "-" {
-                    None
-                } else {
-                    Self::resolve_output_filename(output_filename).map(PathBuf::from)
+    fn configured_output_path(&self) -> Option<PathBuf> {
+        self.output_filename()
+            .filter(|output_filename| output_filename != "-")
+            .map(PathBuf::from)
+    }
+
+    /// Returns the configured output filename, or the input file if there is none,
+    /// so that saving overwrites the opened image, or else the file last chosen
+    /// with save as.
+    fn output_filename(&self) -> Option<String> {
+        let config = APP_CONFIG.read();
+        match (config.output_filename(), config.input()) {
+            (Some(output_filename), _) => Self::resolve_output_filename(output_filename),
+            (None, Some(Input::File(input_filename))) => Some(input_filename.clone()),
+            (None, _) => self.save_as_filename.borrow().clone(),
+        }
+    }
+
+    /// Encodes `image` in the format of the extension of `path`, png if there is
+    /// none. Supported are the formats gdk-pixbuf can write, e.g. png and jpg.
+    fn encode_image(image: &Pixbuf, path: Option<&Path>) -> Result<Vec<u8>, String> {
+        let extension = path
+            .and_then(Path::extension)
+            .map(|extension| extension.to_string_lossy().to_lowercase());
+        let format = match extension {
+            None => "png".to_owned(),
+            Some(extension) => Pixbuf::formats()
+                .iter()
+                .filter(|format| format.is_writable())
+                .find(|format| format.extensions().iter().any(|e| *e == extension))
+                .and_then(|format| format.name())
+                .map(String::from)
+                .ok_or_else(|| format!("saving as .{extension} is not supported"))?,
+        };
+        if format != "jpeg" {
+            return image
+                .save_to_bufferv(&format, &[])
+                .map_err(|e| e.to_string());
+        }
+        // jpeg has no alpha channel and gdk-pixbuf writes a gray image for one;
+        // its default quality of 75 is rather low
+        Self::without_alpha(image)
+            .save_to_bufferv(&format, &[("quality", "90")])
+            .map_err(|e| e.to_string())
+    }
+
+    /// Returns `image` without alpha channel, put on a white background.
+    fn without_alpha(image: &Pixbuf) -> Pixbuf {
+        if !image.has_alpha() {
+            return image.clone();
+        }
+        let (width, height) = (image.width(), image.height());
+        let rowstride = image.rowstride() as usize;
+        let channels = image.n_channels() as usize;
+        let pixels = image.read_pixel_bytes();
+        let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
+        for y in 0..height as usize {
+            for x in 0..width as usize {
+                let i = y * rowstride + x * channels;
+                let alpha = u32::from(pixels[i + 3]);
+                for c in &pixels[i..i + 3] {
+                    rgb.push(((u32::from(*c) * alpha + 255 * (255 - alpha)) / 255) as u8);
                 }
-            })
+            }
+        }
+        Pixbuf::from_bytes(
+            &Bytes::from_owned(rgb),
+            relm4::gtk::gdk_pixbuf::Colorspace::Rgb,
+            false,
+            8,
+            width,
+            height,
+            width * 3,
+        )
     }
 
     fn save_as_last_dir_file() -> Option<PathBuf> {
@@ -751,33 +853,18 @@ impl SketchBoard {
     }
 
     fn handle_save(&self, image: &Pixbuf) {
-        let output_filename = match APP_CONFIG.read().output_filename() {
-            None => {
-                log_with_severity(
-                    "No Output filename specified!",
-                    LogLevel::Error,
-                    LogSeverity::High,
-                );
-                return;
-            }
-            Some(o) => o.clone(),
-        };
-
-        let Some(output_filename) = Self::resolve_output_filename(&output_filename) else {
-            return;
-        };
-
-        // TODO: we could support more data types
-        if output_filename != "-" && !output_filename.ends_with(".png") {
+        let Some(output_filename) = self.output_filename() else {
             log_with_severity(
-                "The only supported format is png, but the filename does not end in png",
+                "No Output filename specified!",
                 LogLevel::Error,
                 LogSeverity::High,
             );
             return;
-        }
+        };
 
-        let data = match image.save_to_bufferv("png", &Vec::new()) {
+        // "-" means stdout, which gets png
+        let path = (output_filename != "-").then(|| Path::new(&output_filename));
+        let data = match Self::encode_image(image, path) {
             Ok(d) => d,
             Err(e) => {
                 log_with_severity(
@@ -785,6 +872,7 @@ impl SketchBoard {
                     LogLevel::Error,
                     LogSeverity::High,
                 );
+
                 return;
             }
         };
@@ -819,14 +907,16 @@ impl SketchBoard {
         };
     }
 
+    /// Asks for a file and saves `pixbuf` to it, exits afterwards if `early_exit`
     fn handle_save_as(
         &self,
-        is_modal: bool,
+        early_exit: bool,
         pixbuf: Pixbuf,
         sender: ComponentSender<Self>,
         followup_actions: Vec<Action>,
     ) {
-        let configured_output_path = Self::configured_output_path();
+        let is_modal = early_exit || !followup_actions.is_empty();
+        let configured_output_path = self.configured_output_path();
         let initial_dir = Self::save_as_initial_dir(
             Self::save_as_last_dir_file().as_deref(),
             configured_output_path.as_deref(),
@@ -836,27 +926,16 @@ impl SketchBoard {
             .and_then(Path::file_name)
             .map(|name| name.to_string_lossy().into_owned());
 
-        let data = match pixbuf.save_to_bufferv("png", &Vec::new()) {
-            Ok(d) => d,
-            Err(e) => {
-                log_with_severity(
-                    &format!("Error serializing image: {e}"),
-                    LogLevel::Error,
-                    LogSeverity::High,
-                );
-                return;
-            }
-        };
-
         let root = self.renderer.toplevel_window();
 
         relm4::spawn_local(async move {
-            let builder = gtk::FileChooserNative::builder()
-                .modal(is_modal)
-                .title("Save Image As")
-                .action(gtk::FileChooserAction::Save)
-                .accept_label("Save")
-                .cancel_label("Cancel");
+            let builder: gtk::builders::FileChooserNativeBuilder =
+                gtk::FileChooserNative::builder()
+                    .modal(is_modal)
+                    .title("Save Image As")
+                    .action(gtk::FileChooserAction::Save)
+                    .accept_label("Save")
+                    .cancel_label("Cancel");
 
             let dialog = match root {
                 Some(w) => builder.transient_for(&w),
@@ -890,14 +969,19 @@ impl SketchBoard {
                         None => return,
                     };
 
-                    match Self::write_image_file(Path::new(&output_filename), &data) {
+                    let written = Self::encode_image(&pixbuf, Some(Path::new(&output_filename)))
+                        .and_then(|data| {
+                            Self::write_image_file(Path::new(&output_filename), &data)
+                                .map_err(|e| e.to_string())
+                        });
+                    match written {
                         Err(e) => log_with_severity(
                             &format!("Error while saving file '{output_filename}': {e}"),
                             LogLevel::Error,
                             LogSeverity::High,
                         ),
                         Ok(_) => {
-                            exit_app = APP_CONFIG.read().early_exit_save_as();
+                            exit_app = early_exit;
                             filename = Some(output_filename.clone());
                             Self::remember_save_as_dir(Path::new(&output_filename));
                             log_result_with_pixbuf(
@@ -1362,10 +1446,9 @@ impl SketchBoard {
             .downcast_ref::<crate::tools::Text>()?
             .clone();
 
-        // Remove the committed drawable and clear selection
+        // Hide the committed drawable while it is edited, the commit replaces it
         self.deselect(sender);
         self.renderer.set_hidden_drawable_index(None);
-        self.renderer.remove_drawable(idx);
 
         // Pre-populate the text tool and switch to it
         self.text_tool.borrow_mut().load_for_editing(text);
@@ -1378,8 +1461,10 @@ impl SketchBoard {
             crate::ui::toolbars::ToolbarEvent::ToolSelected(Tools::Text),
             sender.clone(),
         );
-        // Set after the switch, because every tool selection clears it.
+        // Set after the switch, because every tool selection clears them.
         self.return_to_pointer_after_text_commit = true;
+        self.text_edit_index = Some(idx);
+        self.renderer.set_hidden_drawable_index(Some(idx));
         Some(result)
     }
 
@@ -1424,6 +1509,7 @@ impl SketchBoard {
 
                 // handles also commit
                 self.deactivate_active_tool();
+                self.cancel_text_edit();
 
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
@@ -2142,6 +2228,7 @@ impl Component for SketchBoard {
             }
             SketchBoardInput::RenderResultFollowup(pix_buf, action, filename) => {
                 if filename.is_some() {
+                    self.save_as_filename.replace(filename.clone());
                     *self.last_saved_filepath.borrow_mut() = filename;
                 }
                 self.handle_render_result_with_pixbuf(pix_buf, action, sender);
@@ -2183,6 +2270,9 @@ impl Component for SketchBoard {
         let editing = self.active_tool.borrow().active();
         if editing != self.tool_edit_mode {
             self.tool_edit_mode = editing;
+            if !editing && !matches!(result, ToolUpdateResult::Commit(_)) {
+                self.cancel_text_edit();
+            }
             // An edit that ends without a commit, such as an emptied text, also returns to
             // the pointer. The commit case is handled below, after the drawable is committed.
             if !editing
@@ -2203,14 +2293,14 @@ impl Component for SketchBoard {
         match result {
             ToolUpdateResult::Commit(drawable) => {
                 if self.is_drawable_too_small(drawable.as_ref()) {
+                    self.cancel_text_edit();
                     self.refresh_screen();
                     return;
                 };
                 let auto_select = APP_CONFIG.read().auto_select();
 
-                // commit first, so the index of the new drawable is the last one
                 let selection = auto_select.then(|| drawable.clone_box());
-                self.renderer.commit(drawable);
+                let committed_index = self.commit_drawable(drawable);
 
                 // after the commit, so a new crop is included; queued after any
                 // live drag update so the final display is authoritative
@@ -2219,7 +2309,7 @@ impl Component for SketchBoard {
                 ));
 
                 if let Some(selection) = selection {
-                    if let Some(index) = self.renderer.last_drawable_index() {
+                    if let Some(index) = committed_index {
                         self.pointer_tool
                             .borrow_mut()
                             .set_selection(index, selection.as_ref());
@@ -2252,7 +2342,7 @@ impl Component for SketchBoard {
                         ToolbarEvent::ToolSelected(Tools::Pointer),
                         sender_for_post_commit,
                     );
-                    if let Some(index) = self.renderer.last_drawable_index() {
+                    if let Some(index) = committed_index {
                         self.update_pointer_tool_selection(index, true);
                     }
                 }
@@ -2320,10 +2410,12 @@ impl Component for SketchBoard {
             pointer_tool,
             text_tool,
             return_to_pointer_after_text_commit: false,
+            text_edit_index: None,
             temporary_pointer_previous_tool: None,
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),
+            save_as_filename: RefCell::new(None),
             last_pointer_pos: None,
         };
 
@@ -2452,6 +2544,100 @@ impl KeyEventMsg {
 #[cfg(test)]
 mod tests {
     use super::SketchBoard;
+    use relm4::gtk::gdk_pixbuf::{Colorspace, Pixbuf};
+
+    fn encode(extension: Option<&str>) -> Result<Vec<u8>, String> {
+        let image = Pixbuf::new(Colorspace::Rgb, true, 8, 4, 4).unwrap();
+        image.fill(0x3366_99cc);
+        let path = extension.map(|e| PathBuf::from(format!("image.{e}")));
+        SketchBoard::encode_image(&image, path.as_deref())
+    }
+
+    #[test]
+    fn encodes_by_extension() {
+        const PNG: &[u8] = b"\x89PNG";
+        const JPEG: &[u8] = b"\xff\xd8\xff";
+        assert!(encode(None).unwrap().starts_with(PNG));
+        assert!(encode(Some("png")).unwrap().starts_with(PNG));
+        // jpeg has no alpha channel, the image has one
+        assert!(encode(Some("jpg")).unwrap().starts_with(JPEG));
+        assert!(encode(Some("jpeg")).unwrap().starts_with(JPEG));
+        assert!(encode(Some("JPG")).unwrap().starts_with(JPEG));
+    }
+
+    /// Encodes a red | blue RGBA image like a rendered one and decodes it again
+    fn round_trip(extension: &str) -> Pixbuf {
+        let (w, h) = (16, 8);
+        let mut bytes = Vec::new();
+        for _ in 0..h {
+            for x in 0..w {
+                bytes.extend(if x < w / 2 {
+                    [255, 0, 0, 255]
+                } else {
+                    [0, 0, 255, 255]
+                });
+            }
+        }
+        let image = Pixbuf::from_bytes(
+            &relm4::gtk::glib::Bytes::from(&bytes),
+            Colorspace::Rgb,
+            true,
+            8,
+            w,
+            h,
+            w * 4,
+        );
+        let path = PathBuf::from(format!("image.{extension}"));
+        let data = SketchBoard::encode_image(&image, Some(&path)).unwrap();
+        let stream =
+            relm4::gtk::gio::MemoryInputStream::from_bytes(&relm4::gtk::glib::Bytes::from(&data));
+        Pixbuf::from_stream(&stream, relm4::gtk::gio::Cancellable::NONE).unwrap()
+    }
+
+    fn pixel(image: &Pixbuf, x: usize, y: usize) -> [u8; 3] {
+        let bytes = image.read_pixel_bytes();
+        let i = y * image.rowstride() as usize + x * image.n_channels() as usize;
+        [bytes[i], bytes[i + 1], bytes[i + 2]]
+    }
+
+    #[test]
+    fn keeps_colors_by_extension() {
+        for extension in ["png", "jpg"] {
+            let image = round_trip(extension);
+            let (red, blue) = (pixel(&image, 2, 4), pixel(&image, 13, 4));
+            assert!(
+                red[0] > 200 && red[1] < 50 && red[2] < 50,
+                "{extension}: {red:?}"
+            );
+            assert!(
+                blue[0] < 50 && blue[1] < 50 && blue[2] > 200,
+                "{extension}: {blue:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn transparency_becomes_white_in_jpeg() {
+        let image = Pixbuf::new(Colorspace::Rgb, true, 8, 4, 4).unwrap();
+        image.fill(0x0000_0000);
+        assert_eq!(
+            SketchBoard::without_alpha(&image).read_pixel_bytes()[..3],
+            [255, 255, 255]
+        );
+        image.fill(0x0000_ff80);
+        assert_eq!(
+            SketchBoard::without_alpha(&image).read_pixel_bytes()[..3],
+            [127, 127, 255]
+        );
+    }
+
+    #[test]
+    fn unknown_extension_is_an_error() {
+        assert_eq!(
+            encode(Some("xyz")),
+            Err("saving as .xyz is not supported".to_owned())
+        );
+    }
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};

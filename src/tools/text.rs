@@ -951,6 +951,8 @@ pub struct TextTool {
     dragged: Rc<RefCell<bool>>,
     alt_tap: bool,
     editing_existing: bool,
+    // the last edit ended with an empty text
+    emptied: bool,
 }
 
 impl Tool for TextTool {
@@ -1069,6 +1071,8 @@ impl Tool for TextTool {
                     if content.is_empty() {
                         self.text = None;
                         self.input_enabled = false;
+                        // an emptied text deletes the edited original, see take_emptied
+                        self.emptied = true;
                         tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
                     } else {
                         t.preedit = None;
@@ -1455,6 +1459,7 @@ impl Tool for TextTool {
                             Some(l) => {
                                 let content = l.get_text();
                                 if content.is_empty() {
+                                    self.emptied = true;
                                     ToolUpdateResult::Redraw
                                 } else {
                                     l.preedit = None;
@@ -1616,6 +1621,7 @@ impl Tool for TextTool {
             if content.is_empty() {
                 // Don't create empty text objects
                 self.text = None;
+                self.emptied = true;
                 ToolUpdateResult::Redraw
             } else {
                 t.preedit = None;
@@ -2052,6 +2058,13 @@ impl TextTool {
         }
     }
 
+    /// Whether the last edit ended with an empty text; resets it.
+    pub fn take_emptied(&mut self) -> bool {
+        let emptied = self.emptied;
+        self.emptied = false;
+        emptied
+    }
+
     // Pre-populate the tool with an existing text drawable so the user can edit it.
     // Call this before switching to the Text tool.
     pub fn load_for_editing(&mut self, mut text: Text) {
@@ -2066,6 +2079,7 @@ impl TextTool {
 
         self.style = text.style;
         self.text = Some(text);
+        self.emptied = false;
         self.set_input_enabled(true);
         self.editing_existing = true;
     }
