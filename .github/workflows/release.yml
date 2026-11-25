@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
+  # manual runs from a branch only build and pack; the release steps run only
+  # for tags and crates.io publishing runs only on tag pushes
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -94,6 +97,7 @@ jobs:
 
       - name: Release Flatpak
         uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: satty-${{ github.ref_name }}.flatpak
 
@@ -102,6 +106,8 @@ jobs:
     # Re-publish to crates.io is not possible if this fails. As a precaution, depend
     # on successful release job.
     needs: release
+    # never publish from a manual run, it cannot be undone
+    if: github.event_name == 'push'
     environment: release
 
     steps:
